@@ -1,20 +1,44 @@
+import time
 import asyncio
 import weakref
 from concurrent.futures import Executor
 
 
 class CoroutineExecutor(Executor):
-    def __init__(self):
+    def __init__(self, timeout=None):
         self.tasks = weakref.WeakSet()
+        self._closed = False
+        self.timeout = timeout
+        self.exe_future = None
 
-    def submit(self, fn, *args, **kwargs):
+    def submit(self, fn, *args, **kwargs) -> asyncio.Future:
+        if self._closed:
+            raise RuntimeError('Executor is closed.')
         t = asyncio.create_task(fn(*args, **kwargs))
         self.tasks.add(t)
+        return t
 
-    async def ashutdown(self, wait=True):
-        coro = self.__aexit__()
+    async def map(self, fn, *iterables, timeout=None):
+        if timeout is not None:
+            end_time = timeout + time.monotonic()
+
+        fs = [self.submit(fn, *args) for args in zip(*iterables)]
+
+        for f in fs:
+            if timeout is not None:
+                yield await asyncio.wait_for(f, end_time - time.monotonic())
+            else:
+                yield await f
+
+    async def shutdown(self, wait=True):
+        self._cancel_all_tasks()
+        coro = self.__aexit__(None, None, None)
         if wait:
             await coro
+
+    def _cancel_all_tasks(self):
+        for t in self.tasks:
+            t.cancel()
 
     async def __aenter__(self):
         return self
@@ -23,12 +47,10 @@ class CoroutineExecutor(Executor):
         # If an exception was raised in the body of the context manager,
         # need to handle. Cancel all pending tasks, run them to completion
         # and then propagate the exception.
-        if exc_type:
-            print("__aexit__ got exception!")
-            for t in self.tasks:
-                t.cancel()
+        self._closed = True
 
-                del t  # Allow weakref to clean up
+        if exc_type:
+            self._cancel_all_tasks()
 
         try:
             # This is the main place at which the tasks are executed, and
@@ -37,22 +59,27 @@ class CoroutineExecutor(Executor):
             # If there is an existing exception, we want to swallow all
             # exceptions and exit asap. If no exception, then allow any
             # raised exception to terminate the executor.
-            await asyncio.gather(*self.tasks, return_exceptions=bool(exc_type))
+            coro = asyncio.gather(*self.tasks, return_exceptions=bool(exc_type))
+            if self.timeout:
+                await asyncio.wait_for(coro, self.timeout)
+            else:
+                await coro
         except (asyncio.CancelledError, Exception):
             # Two ways to get here:
             #
             #   1. The task inside which the context manager is being used,
             #      is itself cancelled. This could result in the gather call,
-            #      above, being interruped. NOTE that the tasks there were
+            #      above, being interrupted. NOTE that the tasks there were
             #      being gathered were not cancelled.
             #   2. One of the tasks raises an exception.
+            #   3. Timeout is triggered
             #
             # In either case, we want to bubble the exception to the caller,
             # but only after cancelling the existing tasks.
-            for t in self.tasks:
-                t.cancel()
-
-                del t  # Allow weakref to clean up
-
-            await asyncio.gather(*self.tasks, return_exceptions=True)
+            self._cancel_all_tasks()
+            coro = asyncio.gather(*self.tasks, return_exceptions=True)
+            if self.timeout:
+                await asyncio.wait_for(coro, self.timeout)
+            else:
+                await coro
             raise
