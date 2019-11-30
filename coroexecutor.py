@@ -1,5 +1,4 @@
 import asyncio
-import random
 import weakref
 from concurrent.futures import Executor
 
@@ -29,7 +28,7 @@ class CoroutineExecutor(Executor):
             for t in self.tasks:
                 t.cancel()
 
-            del t  # Allow weakref to clean up
+                del t  # Allow weakref to clean up
 
         try:
             # This is the main place at which the tasks are executed, and
@@ -53,41 +52,7 @@ class CoroutineExecutor(Executor):
             for t in self.tasks:
                 t.cancel()
 
-            del t  # Allow weakref to clean up
+                del t  # Allow weakref to clean up
 
             await asyncio.gather(*self.tasks, return_exceptions=True)
             raise
-
-
-async def p(text, raise_err=False):
-    count = random.randint(1, 10)
-    print("p is running", text, count)
-    try:
-        for i in range(count):
-            if i == 5 and raise_err:
-                raise Exception("bad " + text)
-            print(text)
-            await asyncio.sleep(1)
-    except asyncio.CancelledError:
-        print("cancelled p", text)
-
-
-async def main():
-    # async with CoroutineExecutor() as exe:
-    #     exe.submit(p, "hey")
-    #     exe.submit(p, "ho", raise_err=False)
-    #
-    # for i in range(10):
-    #     print()
-
-    from string import ascii_lowercase
-
-    async with CoroutineExecutor() as exe:
-        results = exe.map(p, ascii_lowercase)
-        print(results)
-
-
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    print("bye!")
