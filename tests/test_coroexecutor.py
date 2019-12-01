@@ -292,3 +292,65 @@ def test_map_outer_timeout():
 
     assert results == times[:2]
 
+
+def test_pass_executor_around():
+    tasks = []
+
+    async def g(dt):
+        await asyncio.sleep(dt)
+        return dt
+
+    async def f(dt, executor: CoroutineExecutor):
+        t = executor.submit(g, dt + 0.02)
+        tasks.append(t)
+        await asyncio.sleep(dt)
+        return dt
+
+    async def main():
+        async with CoroutineExecutor(timeout=0.05) as exe:
+            tasks.append(exe.submit(f, 0.01, exe))
+            tasks.append(exe.submit(f, 0.02, exe))
+
+    run(main())
+
+    assert all(t.done() and not t.cancelled() for t in tasks)
+
+
+@pytest.mark.parametrize('timeout', [
+    None,
+    0.05,
+])
+def test_pass_randoms(timeout):
+    from random import random
+
+    returned = []
+
+    async def f(dt):
+        await asyncio.sleep(dt)
+        returned.append(dt)
+
+    async def producer1(executor: CoroutineExecutor):
+        executor.submit(f, random())
+        executor.submit(f, random())
+        executor.submit(f, random())
+
+    async def producer2(executor: CoroutineExecutor):
+        executor.submit(f, random())
+        executor.submit(f, random())
+        executor.submit(f, random())
+
+    async def main():
+        async with CoroutineExecutor(timeout=timeout) as executor:
+            executor.submit(f, random())
+            executor.submit(f, random())
+            executor.submit(f, random())
+
+            executor.submit(producer1, executor)
+            executor.submit(producer2, executor)
+
+    if timeout is not None:
+        with pytest.raises(asyncio.TimeoutError):
+            run(main())
+    else:
+        run(main())
+        assert len(returned) == 9

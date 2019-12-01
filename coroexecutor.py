@@ -19,6 +19,7 @@ class CoroutineExecutor(Executor):
         return t
 
     async def map(self, fn, *iterables, timeout=None):
+        timeout = timeout or self.timeout
         if timeout is not None:
             end_time = timeout + time.monotonic()
 
@@ -47,8 +48,6 @@ class CoroutineExecutor(Executor):
         # If an exception was raised in the body of the context manager,
         # need to handle. Cancel all pending tasks, run them to completion
         # and then propagate the exception.
-        self._closed = True
-
         if exc_type:
             self._cancel_all_tasks()
 
@@ -59,11 +58,12 @@ class CoroutineExecutor(Executor):
             # If there is an existing exception, we want to swallow all
             # exceptions and exit asap. If no exception, then allow any
             # raised exception to terminate the executor.
-            coro = asyncio.gather(*self.tasks, return_exceptions=bool(exc_type))
-            if self.timeout:
-                await asyncio.wait_for(coro, self.timeout)
-            else:
-                await coro
+            while any(not t.done() for t in self.tasks):
+                coro = asyncio.gather(*self.tasks, return_exceptions=bool(exc_type))
+                if self.timeout:
+                    await asyncio.wait_for(coro, self.timeout)
+                else:
+                    await coro
         except (asyncio.CancelledError, Exception):
             # Two ways to get here:
             #
@@ -83,3 +83,5 @@ class CoroutineExecutor(Executor):
             else:
                 await coro
             raise
+        finally:
+            self._closed = True
