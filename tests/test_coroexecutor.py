@@ -26,8 +26,8 @@ def test_basic():
 
 
 @pytest.mark.parametrize('exc_delay,expected_results', [
-    (0.1, []),  # Failing task finishes first
-    (0.3, [1]),  # Failing task finishes last
+    (0.01, []),  # Failing task finishes first
+    (0.5, [1]),  # Failing task finishes last
 ])
 def test_exception_cancels_all_tasks(exc_delay, expected_results):
     results = []
