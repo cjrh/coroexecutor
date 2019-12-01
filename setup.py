@@ -139,7 +139,7 @@ setup(
     # Similar to `install_requires` above, these must be valid existing
     # projects.
     extras_require={  # Optional
-        'dev': ['check-manifest', 'pygments'],
+        'dev': ['check-manifest', 'pygments', 'wheel'],
         'test': ['pytest', 'pytest-cov'],
     },
 )
