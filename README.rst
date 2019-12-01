@@ -54,9 +54,22 @@ Demo
 Discussion
 ----------
 
-The ``Executor`` interface can't be exactly matched because
-some functions in this interface need to be ``async`` functions. But we
-can get close.
+The ``CoroutineExecutor`` context manager works very much like the
+``Executor`` implementations in the ``concurrent.futures`` package in
+the standard library. The basic components of the interface are:
+
+- The executor applies a context over the creation of jobs
+- Jobs are submitted to the executor
+- All jobs must be complete when the context manager for the executor exits.
+
+After creating a context manager using ``CoroutineExecutor``, the two
+main features are the ``submit()`` method, and the ``map()`` method.
+
+I can't exactly match ``Executor`` interface in the ``concurrent.futures``
+package some functions in this interface need to be ``async`` functions.
+But we can get close; certainly close enough that a user with experience
+using the ``ThreadPoolExecutor`` or ``ProcessPoolExecutor`` should be able
+to figure things out pretty quickly.
 
 Some ideas from Trio's *nurseries* have been used as inspiration:
 
@@ -64,6 +77,9 @@ Some ideas from Trio's *nurseries* have been used as inspiration:
 - If any jobs raise an exception, all other unfinished jobs are cancelled
   (they with have `CancelledError` raised inside them), and
   ``CoroutineExecutor`` re-raises that same exception.
+- Timeouts are interesting given how an executor is a context manager
+  and has an idea of the "scope" over which a timeout can be applied. I've
+  added an optional ``timeout`` parameter to the executor.
 
 Examples
 --------
