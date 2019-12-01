@@ -25,8 +25,8 @@ def test_basic():
 
 
 @pytest.mark.parametrize('exc_delay,expected_results', [
-    (0.1, []),  # Failing task finishes first
-    (0.6, [1]),  # Failing task finishes last
+    (0.05, []),  # Failing task finishes first
+    (0.15, [1]),  # Failing task finishes last
 ])
 def test_exception_cancels_all_tasks(exc_delay, expected_results):
     results = []
@@ -40,7 +40,7 @@ def test_exception_cancels_all_tasks(exc_delay, expected_results):
     async def main():
         async with CoroutineExecutor() as exe:
             t1 = exe.submit(f, exc_delay, error=True)
-            t2 = exe.submit(f, 0.5)
+            t2 = exe.submit(f, 0.1)
 
         assert t1.done()
         assert t2.done()
@@ -180,13 +180,13 @@ def test_cancel_inner_task():
 
     async def outer():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, 0.05)
-            t2 = exe.submit(f, 0.05)
+            t1 = exe.submit(f, 0.1)
+            t2 = exe.submit(f, 0.1)
             tasks.extend([t1, t2])
 
     async def main():
         t = asyncio.create_task(outer())
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.05)
         t1, t2 = tasks
         t1.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -307,7 +307,7 @@ def test_pass_executor_around():
         return dt
 
     async def main():
-        async with CoroutineExecutor(timeout=0.05) as exe:
+        async with CoroutineExecutor(timeout=0.1) as exe:
             tasks.append(exe.submit(f, 0.01, exe))
             tasks.append(exe.submit(f, 0.02, exe))
 
