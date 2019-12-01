@@ -25,8 +25,8 @@ def test_basic():
 
 
 @pytest.mark.parametrize('exc_delay,expected_results', [
-    (0.01, []),  # Failing task finishes first
-    (0.06, [1]),  # Failing task finishes last
+    (0.1, []),  # Failing task finishes first
+    (0.6, [1]),  # Failing task finishes last
 ])
 def test_exception_cancels_all_tasks(exc_delay, expected_results):
     results = []
@@ -40,7 +40,7 @@ def test_exception_cancels_all_tasks(exc_delay, expected_results):
     async def main():
         async with CoroutineExecutor() as exe:
             t1 = exe.submit(f, exc_delay, error=True)
-            t2 = exe.submit(f, 0.05)
+            t2 = exe.submit(f, 0.5)
 
         assert t1.done()
         assert t2.done()
