@@ -181,13 +181,13 @@ def test_cancel_inner_task():
 
     async def outer():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, 0.1)
-            t2 = exe.submit(f, 0.1)
+            t1 = exe.submit(f, 0.2)
+            t2 = exe.submit(f, 0.2)
             tasks.extend([t1, t2])
 
     async def main():
         t = asyncio.create_task(outer())
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.1)
         t1, t2 = tasks
         t1.cancel()
         with pytest.raises(asyncio.CancelledError):
