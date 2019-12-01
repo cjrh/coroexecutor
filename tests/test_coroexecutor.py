@@ -1,3 +1,4 @@
+from contextlib import suppress
 import asyncio
 from asyncio import run
 import pytest
@@ -354,3 +355,55 @@ def test_pass_randoms(timeout):
     else:
         run(main())
         assert len(returned) == 9
+
+
+def test_shutdown():
+    results = []
+
+    async def f(dt):
+        await asyncio.sleep(dt)
+        results.append(1)
+
+    async def main():
+        exe = CoroutineExecutor()
+        t1 = exe.submit(f, 0.01)
+        t2 = exe.submit(f, 0.05)
+        await exe.shutdown(wait=True)  # default
+
+        assert t1.done() and not t1.cancelled()
+        assert t2.done() and not t2.cancelled()
+
+    run(main())
+    assert results == [1, 1]
+
+
+@pytest.mark.parametrize('with_interruption', [False, True])
+def test_shutdown_nowait(with_interruption):
+    results = []
+
+    async def f(dt):
+        with suppress(asyncio.CancelledError):
+            await asyncio.sleep(dt)
+            results.append(1)
+
+    async def main():
+        exe = CoroutineExecutor()
+        t1 = exe.submit(f, 0.1)
+        t2 = exe.submit(f, 0.5)
+        if with_interruption:
+            await asyncio.sleep(0)
+        await exe.shutdown(wait=False)
+
+        # "not cancelled" because CancelledError was handled inside f
+        assert t1.done() and not t1.cancelled()
+        assert t2.done() and not t2.cancelled()
+
+    if with_interruption:
+        run(main())
+    else:
+        # If a task is cancelled before it even starts running, the function
+        # being wrapped by the task doesn't get a chance to handle the
+        # CancelledError!
+        with pytest.raises(asyncio.CancelledError):
+            run(main())
+    assert results == []
