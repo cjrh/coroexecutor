@@ -128,12 +128,12 @@ def test_reraise_unhandled_nested2():
     async def main():
         async with CoroutineExecutor() as exe1:
             t3 = exe1.submit(f, 0.01)
-            t4 = exe1.submit(f, 0.10)
+            t4 = exe1.submit(f, 0.50)
             async with CoroutineExecutor() as exe2:
                 t1 = exe2.submit(f, 0.01)
-                t2 = exe2.submit(f, 0.10)
+                t2 = exe2.submit(f, 0.50)
                 tasks.extend([t1, t2, t3, t4])
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.1)
                 raise Exception('oh noes')
 
     with pytest.raises(Exception, match=r'oh noes'):
