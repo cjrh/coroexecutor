@@ -32,10 +32,9 @@ class CoroutineExecutor(Executor):
                 yield await f
 
     async def shutdown(self, wait=True):
-        self._cancel_all_tasks()
-        coro = self.__aexit__(None, None, None)
-        if wait:
-            await coro
+        if not wait:
+            self._cancel_all_tasks()
+        await self.__aexit__(None, None, None)
 
     def _cancel_all_tasks(self):
         for t in self.tasks:

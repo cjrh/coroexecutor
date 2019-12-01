@@ -8,7 +8,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ['3.5', '3.6', '3.7', '3.8']
+        python-version: ['3.7', '3.8']
         os: [ubuntu-latest, windows-latest, macOS-latest]
       fail-fast: false
     timeout-minutes: 2
@@ -33,7 +33,7 @@ jobs:
     - name: Test with pytest
       run: |
         pip install .[test]
-        pytest --verbose --fulltrace --cov aiorun tests/
+        pytest --verbose --fulltrace --cov coroexecutor tests/
     - name: Extract branch name
       shell: bash
       run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"

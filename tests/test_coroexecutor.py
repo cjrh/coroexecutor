@@ -1,3 +1,4 @@
+from contextlib import suppress
 import asyncio
 from asyncio import run
 import pytest
@@ -26,7 +27,7 @@ def test_basic():
 
 @pytest.mark.parametrize('exc_delay,expected_results', [
     (0.01, []),  # Failing task finishes first
-    (0.06, [1]),  # Failing task finishes last
+    (0.5, [1]),  # Failing task finishes last
 ])
 def test_exception_cancels_all_tasks(exc_delay, expected_results):
     results = []
@@ -40,7 +41,7 @@ def test_exception_cancels_all_tasks(exc_delay, expected_results):
     async def main():
         async with CoroutineExecutor() as exe:
             t1 = exe.submit(f, exc_delay, error=True)
-            t2 = exe.submit(f, 0.05)
+            t2 = exe.submit(f, 0.2)
 
         assert t1.done()
         assert t2.done()
@@ -127,12 +128,12 @@ def test_reraise_unhandled_nested2():
     async def main():
         async with CoroutineExecutor() as exe1:
             t3 = exe1.submit(f, 0.01)
-            t4 = exe1.submit(f, 0.10)
+            t4 = exe1.submit(f, 0.50)
             async with CoroutineExecutor() as exe2:
                 t1 = exe2.submit(f, 0.01)
-                t2 = exe2.submit(f, 0.10)
+                t2 = exe2.submit(f, 0.50)
                 tasks.extend([t1, t2, t3, t4])
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.1)
                 raise Exception('oh noes')
 
     with pytest.raises(Exception, match=r'oh noes'):
@@ -180,13 +181,13 @@ def test_cancel_inner_task():
 
     async def outer():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, 0.05)
-            t2 = exe.submit(f, 0.05)
+            t1 = exe.submit(f, 0.2)
+            t2 = exe.submit(f, 0.2)
             tasks.extend([t1, t2])
 
     async def main():
         t = asyncio.create_task(outer())
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.1)
         t1, t2 = tasks
         t1.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -307,7 +308,7 @@ def test_pass_executor_around():
         return dt
 
     async def main():
-        async with CoroutineExecutor(timeout=0.05) as exe:
+        async with CoroutineExecutor(timeout=0.1) as exe:
             tasks.append(exe.submit(f, 0.01, exe))
             tasks.append(exe.submit(f, 0.02, exe))
 
@@ -354,3 +355,55 @@ def test_pass_randoms(timeout):
     else:
         run(main())
         assert len(returned) == 9
+
+
+def test_shutdown():
+    results = []
+
+    async def f(dt):
+        await asyncio.sleep(dt)
+        results.append(1)
+
+    async def main():
+        exe = CoroutineExecutor()
+        t1 = exe.submit(f, 0.01)
+        t2 = exe.submit(f, 0.05)
+        await exe.shutdown(wait=True)  # default
+
+        assert t1.done() and not t1.cancelled()
+        assert t2.done() and not t2.cancelled()
+
+    run(main())
+    assert results == [1, 1]
+
+
+@pytest.mark.parametrize('with_interruption', [False, True])
+def test_shutdown_nowait(with_interruption):
+    results = []
+
+    async def f(dt):
+        with suppress(asyncio.CancelledError):
+            await asyncio.sleep(dt)
+            results.append(1)
+
+    async def main():
+        exe = CoroutineExecutor()
+        t1 = exe.submit(f, 0.1)
+        t2 = exe.submit(f, 0.5)
+        if with_interruption:
+            await asyncio.sleep(0)
+        await exe.shutdown(wait=False)
+
+        # "not cancelled" because CancelledError was handled inside f
+        assert t1.done() and not t1.cancelled()
+        assert t2.done() and not t2.cancelled()
+
+    if with_interruption:
+        run(main())
+    else:
+        # If a task is cancelled before it even starts running, the function
+        # being wrapped by the task doesn't get a chance to handle the
+        # CancelledError!
+        with pytest.raises(asyncio.CancelledError):
+            run(main())
+    assert results == []
