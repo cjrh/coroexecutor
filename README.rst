@@ -42,7 +42,7 @@ Demo
         await asyncio.sleep(dt)
 
     async def main():
-        async with CoroutineExecutor() as exe:
+        async with CoroutineExecutor(max_workers=10) as exe:
             t1 = exe.submit(f, 0.01)
             t2 = exe.submit(f, 0.05)
 
@@ -75,11 +75,85 @@ Some ideas from Trio's *nurseries* have been used as inspiration:
 
 - The ``CoroutineExecutor`` waits until all submitted jobs are complete.
 - If any jobs raise an exception, all other unfinished jobs are cancelled
-  (they will have `CancelledError` raised inside them), and
+  (they will have ``CancelledError`` raised inside them), and
   ``CoroutineExecutor`` re-raises that same exception.
 - Timeouts are interesting given how an executor is a context manager
   and has an idea of the "scope" over which a timeout can be applied. I've
   added an optional ``timeout`` parameter to the executor.
+
+Throttling, a.k.a `max_workers`
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Even though it is possible to concurrently execute a much larger number
+of (IO bound) tasks with asyncio compared to threads or processes, there
+will still be an upper limit the machine can handle based on either:
+
+- memory limitations: many task object instances
+- CPU limitations: too many concurrent task objects and events for the event loop to process.
+
+Thus, we also have a ``max_workers`` setting to limit concurrency.
+
+However, for *very* large concurrency, we add a second style of ``submit``
+method for adding work to the executor: ``submit_queue``.  Here are the
+differences:
+
+**``def submit(fn, *args, **kwargs)``**
+
+- This method mimics the ``submit`` method in the stdlib ``concurrent.futures``
+  `package <https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.Executor.submit>`_
+- Instead of returning a `concurrent.future.Future <https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.Future>`_,
+  this method returns an `asyncio.Future <https://docs.python.org/3/library/asyncio-future.html?highlight=asyncio%20future#asyncio.Future>`_.
+- Returning a future maintains parity with the corresponding method in ``concurrent.futures``, but it also means
+  that a task object will have been created for every ``submit()`` call (to provide the ``Future`` result).
+- Even though a task is created for every ``submit()`` call, there is an internal
+  `asyncio.Semaphore <https://docs.python.org/3/library/asyncio-sync.html?highlight=semaphore#asyncio.Semaphore>`_
+  that limits the concurrency of the *submitted jobs*.
+
+The point is this: using ``submit()``, the ``max_workers`` setting will
+limit concurrency of the submitted jobs, but
+**will create a task for every ``submit()`` call**. For most "normal"
+workloads, say up to 50k jobs, this will be fine; but it will cause memory
+and/or CPU problems for millions of jobs.
+
+For very large workloads, we have an additional method that does not mimic a corresponding version in
+``concurrent.futures``:  ``submit_queue()``.
+
+**``async def submit_queue(fn, *args, **kwargs) -> None``**
+
+- This method does not mimic anything in ``concurrent.futures``, it is new.
+- This method **does not return a Future**; thus, it doesn't need to create a task for every submitted job
+- Internally, this method uses an `asyncio.Queue <https://docs.python.org/3/library/asyncio-queue.html?highlight=asyncio%20queue#asyncio.Queue>`_
+  and a pool of "worker tasks" of size ``max_workers``.
+- New ``Task`` objects are never created for submitted jobs: the fixed-size pool of worker tasks simply pull work
+  off the internal ``asyncio.Queue`` instance. This dramatically saves memory.
+- The size of the internal ``Queue`` is configurable via the ``max_backlog`` parameter of ``CoroutineExecutor``.
+- The queue size (``max_backlog``) is important because, by default,
+  if shutdown is initiated, say by ``CTRL-C``, then pending
+  work already submitted on this queue is **not cancelled**,
+  but will continue to be processed until those pending tasks have all
+  been completed. Thus, having a smaller backlog will reduce the time it takes
+  to shut down, since there will be less work on the queue. Generally
+  speaking, a larger queue size will not improve performance, and having a
+  smaller backlog limit also means that back-pressure can be propagated
+  through the call stack. This is why ``submit_queue()`` is a coroutine
+  function.
+- Finally, because ``submit_queue()`` does not return a future (or anything),
+  it means that obtaining results from jobs requires a different
+  strategy. A good option is for the submitted job (coroutine function)
+  to send results somewhere itself. For example, it could append to
+  a global list, or send a result over a socket, or write out to a
+  file, write to a database, and so on.
+
+The ``submit_queue()`` method can be used to successfully process many
+millions of tasks. The concurrency setting, ``max_workers``, can be
+used to tweak how many submitted jobs are active at any one time, and
+here you will need to experiment because the optimal value will depend on
+the ratio of IO-bound vs. CPU-bound work being performed in submitted jobs.
+If more CPU-bound, then ``max_workers`` should be reduced; if more
+IO-bound, then ``max_workers`` can be increased.
+
+As a rough guide, for IO-bound work you can start at ``max_workers=20_000`` and see how that
+goes. For a more mixed IO/CPU workload, start at ``max_workers=100``.
 
 Examples
 --------
