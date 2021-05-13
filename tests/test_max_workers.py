@@ -71,9 +71,9 @@ def test_one_worker_concurrent():
     (10000, 5000, 40.0),
 
     # Memory begins to climb with increasing max_workers
-    (100_000, 500, 270.0),
-    (100_000, 5000, 280.0),
-    (100_000, 50000, 400.0),
+    pytest.param(100_000, 500, 270.0, marks=pytest.mark.slow),
+    pytest.param(100_000, 5000, 280.0, marks=pytest.mark.slow),
+    pytest.param(100_000, 50000, 400.0, marks=pytest.mark.slow),
 ])
 def test_many_workers(n, w, dp, sleep_time):
     """ Memory usage:
