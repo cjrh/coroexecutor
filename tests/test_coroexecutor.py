@@ -61,8 +61,8 @@ def test_no_new_tasks():
 
     async def main():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 0.05)
+            exe.submit(f, 0.01)
+            exe.submit(f, 0.05)
 
         got_to_here.append(1)
         exe.submit(f, 0.02)
@@ -102,8 +102,8 @@ def test_reraise_unhandled_nested():
         await asyncio.sleep(dt)
 
     async def main():
-        async with CoroutineExecutor() as exe1:
-            async with CoroutineExecutor() as exe2:
+        async with CoroutineExecutor():
+            async with CoroutineExecutor():
                 async with CoroutineExecutor() as exe3:
                     t1 = exe3.submit(f, 0.01)
                     t2 = exe3.submit(f, 0.05)

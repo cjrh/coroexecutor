@@ -90,7 +90,7 @@ def test_many_workers(n, w, dp, sleep_time):
 
     async def main():
         kwargs = dict(max_workers=w)
-        with elapsed() as f:
+        with elapsed():
             async with CoroutineExecutor(**kwargs) as exe:
                 tasks = [exe.submit(job) for i in range(n)]
 
@@ -99,11 +99,13 @@ def test_many_workers(n, w, dp, sleep_time):
 
     tracemalloc.start()
     current0, peak0 = tracemalloc.get_traced_memory()
-    print(f"Current memory usage is {current0 / 10 ** 6}MB; Peak was {peak0 / 10 ** 6}MB")
+    print(f"Current memory usage is "
+          f"{current0 / 10 ** 6}MB; Peak was {peak0 / 10 ** 6}MB")
     run(main())
     current1, peak1 = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    print(f"Current memory usage is {current1 / 10 ** 6}MB; Peak was {peak1 / 10 ** 6}MB")
+    print(f"Current memory usage is "
+          f"{current1 / 10 ** 6}MB; Peak was {peak1 / 10 ** 6}MB")
 
     delta_peak_MB = (peak1 - current0) / 1e6
     print(f'{delta_peak_MB=}')
@@ -163,7 +165,7 @@ def test_many_workers_queue(n, w, b, dp, sleep_time):
 
     async def main():
         kwargs = dict(max_workers=w, max_backlog=b)
-        with elapsed() as f:
+        with elapsed():
             async with CoroutineExecutor(**kwargs) as exe:
                 for i in range(n):
                     await exe.submit_queue(job)
@@ -173,14 +175,14 @@ def test_many_workers_queue(n, w, b, dp, sleep_time):
 
     tracemalloc.start()
     current0, peak0 = tracemalloc.get_traced_memory()
-    print(f"Current memory usage is {current0 / 10 ** 6}MB; Peak was {peak0 / 10 ** 6}MB")
+    print(f"Current memory usage is "
+          f"{current0 / 10 ** 6}MB; Peak was {peak0 / 10 ** 6}MB")
     run(main())
     current1, peak1 = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    print(f"Current memory usage is {current1 / 10 ** 6}MB; Peak was {peak1 / 10 ** 6}MB")
+    print(f"Current memory usage is "
+          f"{current1 / 10 ** 6}MB; Peak was {peak1 / 10 ** 6}MB")
 
     delta_peak_MB = (peak1 - current0) / 1e6
     print(f'{delta_peak_MB=}')
     assert delta_peak_MB < dp
-
-

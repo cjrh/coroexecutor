@@ -184,7 +184,7 @@ class CoroutineExecutor(Executor):
             self._closed = True
             self._cancel_all_tasks()
             for i in range(self._max_workers):
-                self.q.put_nowait(None)
+                await self.q.put(None)
 
             coro = asyncio.gather(*self.tasks, *self.pool, return_exceptions=True)
             # TODO: this isn't what the timeout setting is intended for
