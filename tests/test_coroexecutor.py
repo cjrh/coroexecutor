@@ -106,7 +106,7 @@ def test_reraise_unhandled_nested():
             async with CoroutineExecutor():
                 async with CoroutineExecutor() as exe3:
                     t1 = exe3.submit(f, 0.01)
-                    t2 = exe3.submit(f, 0.05)
+                    t2 = exe3.submit(f, 0.10)
                     tasks.extend([t1, t2])
                     await asyncio.sleep(0.02)
                     raise Exception('oh noes')
@@ -156,7 +156,7 @@ def test_cancel_outer_task():
     async def outer():
         async with CoroutineExecutor() as exe:
             t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 0.05)
+            t2 = exe.submit(f, 0.10)
             tasks.extend([t1, t2])
 
     async def main():

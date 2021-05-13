@@ -1,7 +1,7 @@
-import time
 import random
 from asyncio import sleep, run
 from contextlib import contextmanager
+import time
 
 import pytest
 
