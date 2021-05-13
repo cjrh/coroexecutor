@@ -33,7 +33,7 @@ jobs:
     - name: Test with pytest
       run: |
         pip install .[test]
-        pytest --flake8 --verbose --fulltrace --cov coroexecutor tests/
+        pytest --flake8 --verbose --fulltrace --cov coroexecutor -m "not slow" tests/
     - name: Extract branch name
       shell: bash
       run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
