@@ -124,22 +124,22 @@ def test_many_workers(n, w, dp, sleep_time):
     (10_000, 50, 10000, 1.6),
 
     # 100k jobs, 1k workers - 1.5 MB
-    (100_000, 10, 10, 1.0),
+    pytest.param(100_000, 10, 10, 1.0, marks=pytest.mark.slow),
     # 100k jobs, 1k workers - 1.5 MB
-    (100_000, 100, 10, 1.0),
+    pytest.param(100_000, 100, 10, 1.0, marks=pytest.mark.slow),
     # 100k jobs, 1k workers - 3.0 MB
-    (100_000, 1000, 10, 3.0),
+    pytest.param(100_000, 1000, 10, 3.0, marks=pytest.mark.slow),
     # 100k jobs, 1k workers - 22 MB
-    (100_000, 10000, 10, 22.0),
+    pytest.param(100_000, 10000, 10, 22.0, marks=pytest.mark.slow),
 
     # 100k jobs, 1k workers
-    (100_000, 10, 10000, 2.5),
+    pytest.param(100_000, 10, 10000, 2.5, marks=pytest.mark.slow),
     # 100k jobs, 1k workers
-    (100_000, 100, 10000, 2.5),
+    pytest.param(100_000, 100, 10000, 2.5, marks=pytest.mark.slow),
     # 100k jobs, 1k workers
-    (100_000, 1000, 10000, 6.0),
+    pytest.param(100_000, 1000, 10000, 6.0, marks=pytest.mark.slow),
     # 100k jobs, 1k workers - 40 MB
-    (100_000, 10000, 10000, 40),
+    pytest.param(100_000, 10000, 10000, 40, marks=pytest.mark.slow),
     # # many jobs, 10k workers - 48 MB
     # (500_000, 10_000, 10000, 48.0),
     # # many jobs, 20k workers - 77 MB
