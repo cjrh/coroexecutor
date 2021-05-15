@@ -108,7 +108,7 @@ def test_many_workers(n, w, dp, sleep_time):
           f"{current1 / 10 ** 6}MB; Peak was {peak1 / 10 ** 6}MB")
 
     delta_peak_MB = (peak1 - current0) / 1e6
-    print(f'{delta_peak_MB=}')
+    print(f'delta_peak_MB={delta_peak_MB}')
     assert delta_peak_MB < dp
 
 
@@ -184,5 +184,5 @@ def test_many_workers_queue(n, w, b, dp, sleep_time):
           f"{current1 / 10 ** 6}MB; Peak was {peak1 / 10 ** 6}MB")
 
     delta_peak_MB = (peak1 - current0) / 1e6
-    print(f'{delta_peak_MB=}')
+    print(f'delta_peak_MB={delta_peak_MB}')
     assert delta_peak_MB < dp
