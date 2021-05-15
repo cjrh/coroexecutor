@@ -1,9 +1,7 @@
 import time
 import asyncio
 import weakref
-import inspect
 import logging
-from typing import Callable, Awaitable, Union
 from concurrent.futures import Executor
 
 
