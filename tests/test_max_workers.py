@@ -21,7 +21,7 @@ async def job(i):
     return i
 
 
-items = [random.randint(0, 10) / 1000 for i in range(100)]
+items = [random.randint(4, 6) / 1000 for i in range(100)]
 random.shuffle(items)
 
 
@@ -37,6 +37,7 @@ def test_one_worker_serial():
         assert [t.result() for t in tasks] == items
         # Elapsed time is greater than the sum of each individual
         # time.
+        print(f(), sum(items))
         assert f() > sum(items)
 
     run(main())
@@ -54,6 +55,7 @@ def test_one_worker_concurrent():
         assert [t.result() for t in tasks] == items
         # Speedup is roughly 10 times
         concurrency = sum(items) / f()
+        print(f(), sum(items), concurrency)
         assert concurrency > 7
 
     run(main())
