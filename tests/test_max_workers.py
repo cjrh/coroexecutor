@@ -1,4 +1,5 @@
 import random
+import sys
 from asyncio import sleep, run
 from contextlib import contextmanager
 import time
@@ -58,6 +59,7 @@ def test_one_worker_concurrent():
     run(main())
 
 
+@pytest.mark.skipif(sys.version.startswith('3.7'), reason='too much mem use')
 @pytest.mark.parametrize('sleep_time', [
     0,
     0.01
@@ -112,7 +114,7 @@ def test_many_workers(n, w, dp, sleep_time):
     assert delta_peak_MB < dp
 
 
-# @pytest.mark.skip(reason="Slow test, consumes ~ 1.2 GB memory")
+@pytest.mark.skipif(sys.version.startswith('3.7'), reason='too much mem use')
 @pytest.mark.parametrize('sleep_time', [
     0,
     0.0001
