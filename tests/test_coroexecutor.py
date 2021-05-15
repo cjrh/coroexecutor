@@ -108,7 +108,7 @@ def test_reraise_unhandled_nested():
                     t1 = exe3.submit(f, 0.01)
                     t2 = exe3.submit(f, 0.10)
                     tasks.extend([t1, t2])
-                    await asyncio.sleep(0.02)
+                    await asyncio.sleep(0.05)
                     raise Exception('oh noes')
 
     with pytest.raises(Exception, match=r'oh noes'):
