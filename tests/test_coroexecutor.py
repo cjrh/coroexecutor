@@ -161,7 +161,7 @@ def test_cancel_outer_task():
 
     async def main():
         t = asyncio.create_task(outer())
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.05)
         t.cancel()
         with pytest.raises(asyncio.CancelledError):
             await t
@@ -257,7 +257,7 @@ def test_map_error():
 
 
 def test_map_timeout():
-    times = [0.01, 0.02, 0.1, 0.2]
+    times = [0.01, 0.02, 0.2, 0.3]
     results = []
 
     async def f(dt):
@@ -266,7 +266,7 @@ def test_map_timeout():
 
     async def main():
         async with CoroutineExecutor() as exe:
-            async for r in exe.map(f, times, timeout=0.05):
+            async for r in exe.map(f, times, timeout=0.1):
                 results.append(r)
 
     with pytest.raises(asyncio.TimeoutError):
