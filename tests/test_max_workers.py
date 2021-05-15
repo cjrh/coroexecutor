@@ -21,7 +21,7 @@ async def job(i):
     return i
 
 
-items = [random.randint(4, 6) / 1000 for i in range(100)]
+items = [random.randint(4, 6) / 1000 for i in range(1000)]
 random.shuffle(items)
 
 
