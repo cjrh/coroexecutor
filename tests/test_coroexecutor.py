@@ -82,9 +82,9 @@ def test_reraise_unhandled():
     async def main():
         async with CoroutineExecutor() as exe:
             t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 0.05)
+            t2 = exe.submit(f, 0.10)
             tasks.extend([t1, t2])
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.05)
             raise Exception('oh noes')
 
     with pytest.raises(Exception, match=r'oh noes'):

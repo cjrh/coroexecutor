@@ -63,7 +63,7 @@ def test_one_worker_concurrent():
     0.01
 ])
 @pytest.mark.parametrize('n,w,dp', [
-    (100, 1, 0.25),
+    (100, 1, 0.3),
     (1000, 50, 3.0),
 
     (10000, 50, 30.0),
