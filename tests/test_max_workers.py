@@ -31,7 +31,7 @@ def test_one_worker_serial():
         kwargs = dict(max_workers=1)
         with elapsed() as f:
             async with CoroutineExecutor(**kwargs) as exe:
-                tasks = [exe.submit(job, item) for item in items]
+                tasks = [await exe.submit(job, item) for item in items]
 
         assert all(t.done() for t in tasks)
         assert [t.result() for t in tasks] == items
@@ -51,7 +51,7 @@ def test_one_worker_concurrent():
         kwargs = dict(max_workers=10)
         with elapsed() as f:
             async with CoroutineExecutor(**kwargs) as exe:
-                tasks = [exe.submit(job, item) for item in items]
+                tasks = [await exe.submit(job, item) for item in items]
 
         assert all(t.done() for t in tasks)
         assert [t.result() for t in tasks] == items
@@ -98,7 +98,7 @@ def test_many_workers(n, w, dp, sleep_time):
         kwargs = dict(max_workers=w)
         with elapsed():
             async with CoroutineExecutor(**kwargs) as exe:
-                tasks = [exe.submit(job) for i in range(n)]
+                tasks = [await exe.submit(job) for i in range(n)]
 
         assert all(t.done() for t in tasks)
         assert [t.result() for t in tasks] == [123] * n
@@ -125,7 +125,7 @@ def test_many_workers(n, w, dp, sleep_time):
 ])
 @pytest.mark.parametrize('n,w,b,dp', [
     # Single worker test - 0.02 MB
-    (100, 1, 5, 0.02),
+    (100, 1, 5, 0.04),
     # Many jobs, but 50 worker tasks and a queue backlog of 50 - 0.25 MB
     (10_000, 50, 50, 0.25),
     # Many jobs, 50 worker tasks, large queue backlog - 1.5 MB memory

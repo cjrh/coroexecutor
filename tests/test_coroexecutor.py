@@ -14,8 +14,8 @@ def test_basic():
 
     async def main():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 0.05)
+            t1 = await exe.submit(f, 0.01)
+            t2 = await exe.submit(f, 0.05)
 
         assert t1.done()
         assert t2.done()
@@ -40,8 +40,8 @@ def test_exception_cancels_all_tasks(exc_delay, expected_results):
 
     async def main():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, exc_delay, error=True)
-            t2 = exe.submit(f, 0.2)
+            t1 = await exe.submit(f, exc_delay, error=True)
+            t2 = await exe.submit(f, 0.2)
 
         assert t1.done()
         assert t2.done()
@@ -61,11 +61,11 @@ def test_no_new_tasks():
 
     async def main():
         async with CoroutineExecutor() as exe:
-            exe.submit(f, 0.01)
-            exe.submit(f, 0.05)
+            await exe.submit(f, 0.01)
+            await exe.submit(f, 0.05)
 
         got_to_here.append(1)
-        exe.submit(f, 0.02)
+        await exe.submit(f, 0.02)
 
     with pytest.raises(RuntimeError):
         run(main())
@@ -81,8 +81,8 @@ def test_reraise_unhandled():
 
     async def main():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 0.10)
+            t1 = await exe.submit(f, 0.01)
+            t2 = await exe.submit(f, 0.10)
             tasks.extend([t1, t2])
             await asyncio.sleep(0.05)
             raise Exception('oh noes')
@@ -105,10 +105,10 @@ def test_reraise_unhandled_nested():
         async with CoroutineExecutor():
             async with CoroutineExecutor():
                 async with CoroutineExecutor() as exe3:
-                    t1 = exe3.submit(f, 0.01)
-                    t2 = exe3.submit(f, 0.10)
+                    t1 = await exe3.submit(f, 0.01)
+                    t2 = await exe3.submit(f, 0.50)
                     tasks.extend([t1, t2])
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.1)
                     raise Exception('oh noes')
 
     with pytest.raises(Exception, match=r'oh noes'):
@@ -127,11 +127,11 @@ def test_reraise_unhandled_nested2():
 
     async def main():
         async with CoroutineExecutor() as exe1:
-            t3 = exe1.submit(f, 0.01)
-            t4 = exe1.submit(f, 0.50)
+            t3 = await exe1.submit(f, 0.01)
+            t4 = await exe1.submit(f, 0.50)
             async with CoroutineExecutor() as exe2:
-                t1 = exe2.submit(f, 0.01)
-                t2 = exe2.submit(f, 0.50)
+                t1 = await exe2.submit(f, 0.01)
+                t2 = await exe2.submit(f, 0.50)
                 tasks.extend([t1, t2, t3, t4])
                 await asyncio.sleep(0.1)
                 raise Exception('oh noes')
@@ -155,13 +155,13 @@ def test_cancel_outer_task():
 
     async def outer():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 0.10)
+            t1 = await exe.submit(f, 0.01)
+            t2 = await exe.submit(f, 0.20)
             tasks.extend([t1, t2])
 
     async def main():
         t = asyncio.create_task(outer())
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.1)
         t.cancel()
         with pytest.raises(asyncio.CancelledError):
             await t
@@ -181,8 +181,8 @@ def test_cancel_inner_task():
 
     async def outer():
         async with CoroutineExecutor() as exe:
-            t1 = exe.submit(f, 1.0)
-            t2 = exe.submit(f, 1.0)
+            t1 = await exe.submit(f, 1.0)
+            t2 = await exe.submit(f, 1.0)
             tasks.extend([t1, t2])
 
     async def main():
@@ -208,8 +208,8 @@ def test_timeout():
 
     async def main():
         async with CoroutineExecutor(timeout=0.05) as exe:
-            t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 5)
+            t1 = await exe.submit(f, 0.01)
+            t2 = await exe.submit(f, 5)
             tasks.extend([t1, t2])
 
     with pytest.raises(asyncio.TimeoutError):
@@ -302,15 +302,15 @@ def test_pass_executor_around():
         return dt
 
     async def f(dt, executor: CoroutineExecutor):
-        t = executor.submit(g, dt + 0.02)
+        t = await executor.submit(g, dt + 0.02)
         tasks.append(t)
         await asyncio.sleep(dt)
         return dt
 
     async def main():
         async with CoroutineExecutor(timeout=0.1) as exe:
-            tasks.append(exe.submit(f, 0.01, exe))
-            tasks.append(exe.submit(f, 0.02, exe))
+            tasks.append(await exe.submit(f, 0.01, exe))
+            tasks.append(await exe.submit(f, 0.02, exe))
 
     run(main())
 
@@ -331,23 +331,23 @@ def test_pass_randoms(timeout):
         returned.append(dt)
 
     async def producer1(executor: CoroutineExecutor):
-        executor.submit(f, random())
-        executor.submit(f, random())
-        executor.submit(f, random())
+        await executor.submit(f, random())
+        await executor.submit(f, random())
+        await executor.submit(f, random())
 
     async def producer2(executor: CoroutineExecutor):
-        executor.submit(f, random())
-        executor.submit(f, random())
-        executor.submit(f, random())
+        await executor.submit(f, random())
+        await executor.submit(f, random())
+        await executor.submit(f, random())
 
     async def main():
         async with CoroutineExecutor(timeout=timeout) as executor:
-            executor.submit(f, random())
-            executor.submit(f, random())
-            executor.submit(f, random())
+            await executor.submit(f, random())
+            await executor.submit(f, random())
+            await executor.submit(f, random())
 
-            executor.submit(producer1, executor)
-            executor.submit(producer2, executor)
+            await executor.submit(producer1, executor)
+            await executor.submit(producer2, executor)
 
     if timeout is not None:
         with pytest.raises(asyncio.TimeoutError):
@@ -366,8 +366,8 @@ def test_shutdown():
 
     async def main():
         exe = CoroutineExecutor()
-        t1 = exe.submit(f, 0.01)
-        t2 = exe.submit(f, 0.05)
+        t1 = await exe.submit(f, 0.01)
+        t2 = await exe.submit(f, 0.05)
         await exe.shutdown(wait=True)  # default
 
         assert t1.done() and not t1.cancelled()
@@ -377,33 +377,50 @@ def test_shutdown():
     assert results == [1, 1]
 
 
-@pytest.mark.parametrize('with_interruption', [False, True])
-def test_shutdown_nowait(with_interruption):
+@pytest.mark.parametrize(
+    'with_interruption,sleep_time,t1cancelled,t2cancelled,raises', [
+        (False, 0, True, True, False),
+        (False, 0.01, True, True, False),
+        # The tasks do not get cancelled, but `run()` raises CancelledError??
+        # It seems like with sleep(0) the task is created, but does not start
+        # executing the coroutine yet?
+        (True, 0, False, False, True),
+        # The tasks do not get cancelled, and no CancelledError is raised.
+        (True, 0.01, False, False, False),
+    ]
+)
+def test_shutdown_nowait(
+        with_interruption,
+        sleep_time,
+        t1cancelled,
+        t2cancelled,
+        raises
+):
     results = []
 
     async def f(dt):
         with suppress(asyncio.CancelledError):
+            print('beginning sleep')
             await asyncio.sleep(dt)
+            print('ending sleep')
             results.append(1)
+        print('leaving f')
 
     async def main():
         exe = CoroutineExecutor()
-        t1 = exe.submit(f, 0.1)
-        t2 = exe.submit(f, 0.5)
+        t1 = await exe.submit(f, 0.5)
+        t2 = await exe.submit(f, 0.9)
         if with_interruption:
-            await asyncio.sleep(0)
+            await asyncio.sleep(sleep_time)
         await exe.shutdown(wait=False)
 
-        # "not cancelled" because CancelledError was handled inside f
-        assert t1.done() and not t1.cancelled()
-        assert t2.done() and not t2.cancelled()
+        assert t1.done() and (t1.cancelled() == t1cancelled)
+        assert t2.done() and (t2.cancelled() == t2cancelled)
 
-    if with_interruption:
-        run(main())
-    else:
-        # If a task is cancelled before it even starts running, the function
-        # being wrapped by the task doesn't get a chance to handle the
-        # CancelledError!
+    if raises:
         with pytest.raises(asyncio.CancelledError):
             run(main())
+    else:
+        run(main())
+
     assert results == []
