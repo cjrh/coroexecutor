@@ -69,12 +69,12 @@ def test_one_worker_concurrent():
     0.01
 ])
 @pytest.mark.parametrize('n,w,dp', [
-    (100, 1, 0.3),
-    (1000, 50, 3.0),
+    (100, 1, 0.04),
+    (1000, 50, 0.5),
 
-    (10000, 50, 30.0),
-    (10000, 500, 40.0),
-    (10000, 5000, 40.0),
+    (10000, 50, 1.8),
+    (10000, 500, 4.0),
+    (10000, 5000, 20.0),
 
     # Memory begins to climb with increasing max_workers
     pytest.param(100_000, 500, 270.0, marks=pytest.mark.slow),
@@ -125,9 +125,9 @@ def test_many_workers(n, w, dp, sleep_time):
 ])
 @pytest.mark.parametrize('n,w,b,dp', [
     # Single worker test - 0.02 MB
-    (100, 1, 5, 0.04),
+    (100, 1, 5, 0.05),
     # Many jobs, but 50 worker tasks and a queue backlog of 50 - 0.25 MB
-    (10_000, 50, 50, 0.25),
+    (10_000, 50, 50, 0.3),
     # Many jobs, 50 worker tasks, large queue backlog - 1.5 MB memory
     (10_000, 50, 10000, 1.6),
 

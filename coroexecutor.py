@@ -1,14 +1,12 @@
 from __future__ import annotations
-import time
 import asyncio
 from asyncio import Future, Task
-import weakref
 from weakref import WeakSet, WeakKeyDictionary
 import logging
-import typing
 from concurrent.futures import Executor
 
 
+__all__ = ['CoroutineExecutor']
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
@@ -16,19 +14,14 @@ logger.setLevel(logging.WARNING)
 class CoroutineExecutor(Executor):
     def __init__(
             self,
-            timeout=None,
             max_workers=1000,
             max_backlog=10,
             initializer=None,
             initargs=()
     ):
-        self.tasks: WeakSet[Task] = WeakSet()
-        self.submission_futures: WeakSet[Future] = WeakSet()
-
         self.subfut: WeakKeyDictionary[Future, Task] = WeakKeyDictionary()
 
         self._closed = False
-        self.timeout = timeout
         self.exe_future = None
 
         self._max_workers = max_workers
@@ -87,10 +80,7 @@ class CoroutineExecutor(Executor):
         # of the ``max_workers``. This queue is really
         # a backlog, not a concurrency limit.
         await self.q.put((fn, args, kwargs, f))
-        # If the job was successfully submitted, we can
-        # return the future.
-        self.submission_futures.add(f)
-        # No task created yet
+        # Record the future in the list, but no task created yet
         self.subfut[f] = None
         return f
 
@@ -118,6 +108,7 @@ class CoroutineExecutor(Executor):
     async def pool_worker(self):
         while True:
             try:
+                # print('waiting for item')
                 item = await self.q.get()
                 # print(f'got item {item}')
             except asyncio.CancelledError:
@@ -139,16 +130,17 @@ class CoroutineExecutor(Executor):
                     f: asyncio.Future = extra[0]
                     if f.done():
                         # Might already have been cancelled
+                        # del self.subfut[f]
                         continue
 
                     t = asyncio.create_task(coro)
-                    self.tasks.add(t)
                     self.subfut[f] = t
 
                     def done_callback(f: asyncio.Future):
                         """ This is called if the submitter of the
                         job cancels it."""
-                        if f.cancelled():
+                        if f.cancelled() and not t.cancelled():
+                            print('f was cancelled, so cancelling the task', args, kwargs)
                             t.cancel()
                             # coro.throw(asyncio.CancelledError())
                         f.remove_done_callback(done_callback)
@@ -159,20 +151,18 @@ class CoroutineExecutor(Executor):
                         result = await t
                         # result = await coro
                     except asyncio.CancelledError:
-                        print('cancellederror')
+                        print('cancellederror', args, kwargs)
                         f.cancel()
                         raise
                     except Exception as e:
-                        print('general exception')
+                        print('general exception', args, kwargs)
                         f.set_exception(e)
                         raise
                     else:
                         # print('setting result')
                         f.set_result(result)
                     finally:
-                        self.submission_futures.discard(f)
                         del self.subfut[f]
-                        self.tasks.discard(t)
                 else:
                     await coro
 
@@ -184,18 +174,10 @@ class CoroutineExecutor(Executor):
             except Exception:
                 logger.exception('task raised an error:')
 
-    async def map(self, fn, *iterables, timeout=None):
-        timeout = timeout or self.timeout
-        if timeout is not None:
-            end_time = timeout + time.monotonic()
-
+    async def map(self, fn, *iterables):
         fs = [await self.submit(fn, *args) for args in zip(*iterables)]
-
         for f in fs:
-            if timeout is not None:
-                yield await asyncio.wait_for(f, end_time - time.monotonic())
-            else:
-                yield await f
+            yield await f
 
     async def shutdown(self, wait=True):
         """Shut down the executor.
@@ -210,24 +192,15 @@ class CoroutineExecutor(Executor):
         await self.__aexit__(None, None, None)
 
     def _cancel_all_tasks(self):
-        print(self.tasks, self.submission_futures)
+        print('in _cancel_all_tasks', list(self.subfut.items()))
         for f, t in self.subfut.items():
+            print('cancelling f,t')
             if t:
                 print('cancelling the task, not future')
                 t.cancel()
             else:
                 print('cancelling the future, not task')
                 f.cancel()
-
-        # for t in self.tasks:
-        #     print('cancelling task')
-        #     # If the task (actually coro) allows the CancelledError to
-        #     # be raised out of it, then the outer future will also be
-        #     # cancelled. Otherwise it won't!
-        #     t.cancel()
-
-        # for f in self.submission_futures:
-        #     f.cancel()
 
     async def __aenter__(self):
         return self
@@ -243,24 +216,21 @@ class CoroutineExecutor(Executor):
         # If an exception was raised in the body of the context manager,
         # need to handle. Cancel all pending tasks, run them to completion
         # and then propagate the exception.
+        swallow = False
         if exc_type:
             print('Exception raise in CM body')
             self._closed = True
             self._cancel_all_tasks()
+            swallow = True
 
         try:
-            await self.wait_for_completion(swallow_exceptions=bool(exc_type))
+            try:
+                await self.wait_for_completion(swallow=swallow)
+            except Exception:
+                logger.exception('error during main wait')
+                raise
+
             await self.shut_down_pool()
-
-            # # Shut off the pool workers
-            # # print(f'Shutting off the pool workers {self._max_workers}')
-            # logger.info('Shutting off the pool workers')
-            # for i in range(self._max_workers):
-            #     await self.q.put(None)
-            #
-            # for t in self.pool:
-            #     await t
-
         except (asyncio.CancelledError, Exception):
             logger.exception('Exception raise in handle_exit wait')
             # Two ways to get here:
@@ -276,39 +246,89 @@ class CoroutineExecutor(Executor):
             # but only after cancelling the existing tasks.
             self._closed = True
             self._cancel_all_tasks()
-            for i in range(self._max_workers):
-                await self.q.put(None)
 
-            coro = asyncio.gather(*self.tasks, *self.pool, return_exceptions=True)
-            # TODO: this isn't what the timeout setting is intended for
-            #  and should probably be removed.
-            if self.timeout:
-                await asyncio.wait_for(coro, self.timeout)
-            else:
-                await coro
+            # for i in range(self._max_workers):
+            #     await self.q.put(None)
+
+            try:
+                await self.wait_for_completion(swallow=True)
+            except Exception:
+                logger.exception('error waiting during handler')
+
+            try:
+                await self.shut_down_pool()
+            except Exception:
+                logger.exception('error waiting pool during handler')
 
             raise
         finally:
             self._closed = True
 
-    async def wait_for_completion(self, swallow_exceptions=False):
+    async def wait_for_completion(self, swallow=False):
         # This is the main place at which the tasks are executed, and
         # it covers both cases, of whether there is an active exception
         # (exc_type is not None) as well no exception (normal execution)
         # If there is an existing exception, we want to swallow all
         # exceptions and exit asap. If no exception, then allow any
         # raised exception to terminate the executor.
-        pending_tasks = [t for t in self.tasks if not t.done()]
-        pending_futures = [f for f in self.submission_futures if not f.done()]
-        while any(pending_tasks) or any(pending_futures):
-            coro = asyncio.gather(*self.tasks, *self.submission_futures, return_exceptions=swallow_exceptions)
-            if self.timeout:
-                await asyncio.wait_for(coro, self.timeout)
-            else:
-                await coro
 
-            pending_tasks = [t for t in self.tasks if not t.done()]
-            pending_futures = [f for f in self.submission_futures if not f.done()]
+        # TODO: we might be able to use an asyncio.Event.  All this function
+        #  needs to do is wait for the first exception or cancellation, and
+        #  then cancel all other pending work. And then either this or
+        #  the outer call (__aexit__) needs to wait for the pool workers to
+        #  finish up.
+        #  - if CancelledError is raised in __aexit__, put Nones in the queue
+        #    and wait for pool workers.
+        #  - If CancelledError is raise in a task, that counts as a
+        #    "shut everything down" condition.
+        #  - If an exception is raised in a task, that counts too.
+        #  - If a future is cancelled, that also counts. (but should it?)
+        #  We also need to decide properly where membership in self.subfut
+        #  is managed.  And also whether it really should be a weakref? We
+        #  could easily remove futures when they're done.
+
+        to_raise = None
+        pending_futures = [fut for fut in self.subfut]
+
+        while pending_futures:
+            print('pending futures', pending_futures)
+            try:
+                done, pending = await asyncio.wait(
+                    pending_futures,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+            except asyncio.CancelledError as e:
+                self._cancel_all_tasks()
+                to_raise = e
+                # raise
+            else:
+                if not to_raise:
+                    print('done, pending', done, pending)
+                    for f in done:
+                        if f.cancelled() or f.exception():
+                            print('f.cancelled or f.exception, cancelling all tasks')
+                            for p in pending:
+                                if self.subfut.get(p):
+                                    print('cancelling p task')
+                                    self.subfut[p].cancel()
+                                else:
+                                    print('cancelling p future')
+                                    p.cancel()
+
+                            if f in self.subfut:
+                                del self.subfut[f]
+
+                        if f.cancelled():
+                            print('f.cancelled, setting to_raise')
+                            to_raise = asyncio.CancelledError()
+                        elif f.exception():
+                            print('f.exception, setting to_raise')
+                            to_raise = f.exception()
+
+            pending_futures = [fut for fut in self.subfut]
+
+        if to_raise and not swallow:
+            raise to_raise
 
     async def shut_down_pool(self):
         # Shut off the pool workers

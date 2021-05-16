@@ -19,7 +19,6 @@ def test_basic():
 
         assert t1.done()
         assert t2.done()
-        assert not exe.tasks or all(t.done() for t in list(exe.tasks))
 
     run(main())
     assert results == [1, 1]
@@ -45,7 +44,6 @@ def test_exception_cancels_all_tasks(exc_delay, expected_results):
 
         assert t1.done()
         assert t2.done()
-        assert not exe.tasks or all(t.done() for t in list(exe.tasks))
 
     with pytest.raises(Exception, match=r'oh noes'):
         run(main())
@@ -176,18 +174,19 @@ def test_cancel_outer_task():
 def test_cancel_inner_task():
     tasks = []
 
-    async def f(dt):
+    async def f(dt, *args):
         await asyncio.sleep(dt)
+        return args
 
     async def outer():
         async with CoroutineExecutor() as exe:
-            t1 = await exe.submit(f, 1.0)
-            t2 = await exe.submit(f, 1.0)
+            t1 = await exe.submit(f, 1.0, 'a')
+            t2 = await exe.submit(f, 1.0, 'b')
             tasks.extend([t1, t2])
 
     async def main():
         t = asyncio.create_task(outer())
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)
         t1, t2 = tasks
         t1.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -197,26 +196,6 @@ def test_cancel_inner_task():
 
     t1, t2 = tasks
     assert t1.done() and t1.cancelled()
-    assert t2.done() and t2.cancelled()
-
-
-def test_timeout():
-    tasks = []
-
-    async def f(dt):
-        await asyncio.sleep(dt)
-
-    async def main():
-        async with CoroutineExecutor(timeout=0.05) as exe:
-            t1 = await exe.submit(f, 0.01)
-            t2 = await exe.submit(f, 5)
-            tasks.extend([t1, t2])
-
-    with pytest.raises(asyncio.TimeoutError):
-        run(main())
-
-    t1, t2 = tasks
-    assert t1.done() and not t1.cancelled()
     assert t2.done() and t2.cancelled()
 
 
@@ -256,44 +235,6 @@ def test_map_error():
     assert results == times[:2]
 
 
-def test_map_timeout():
-    times = [0.01, 0.02, 0.2, 0.3]
-    results = []
-
-    async def f(dt):
-        await asyncio.sleep(dt)
-        return dt
-
-    async def main():
-        async with CoroutineExecutor() as exe:
-            async for r in exe.map(f, times, timeout=0.1):
-                results.append(r)
-
-    with pytest.raises(asyncio.TimeoutError):
-        run(main())
-
-    assert results == times[:2]
-
-
-def test_map_outer_timeout():
-    times = [0.01, 0.02, 0.1, 0.2]
-    results = []
-
-    async def f(dt):
-        await asyncio.sleep(dt)
-        return dt
-
-    async def main():
-        async with CoroutineExecutor(timeout=0.05) as exe:
-            async for r in exe.map(f, times):
-                results.append(r)
-
-    with pytest.raises(asyncio.TimeoutError):
-        run(main())
-
-    assert results == times[:2]
-
-
 def test_pass_executor_around():
     tasks = []
 
@@ -308,7 +249,7 @@ def test_pass_executor_around():
         return dt
 
     async def main():
-        async with CoroutineExecutor(timeout=0.1) as exe:
+        async with CoroutineExecutor() as exe:
             tasks.append(await exe.submit(f, 0.01, exe))
             tasks.append(await exe.submit(f, 0.02, exe))
 
@@ -317,11 +258,7 @@ def test_pass_executor_around():
     assert all(t.done() and not t.cancelled() for t in tasks)
 
 
-@pytest.mark.parametrize('timeout', [
-    None,
-    0.05,
-])
-def test_pass_randoms(timeout):
+def test_pass_randoms():
     from random import random
 
     returned = []
@@ -341,7 +278,7 @@ def test_pass_randoms(timeout):
         await executor.submit(f, random())
 
     async def main():
-        async with CoroutineExecutor(timeout=timeout) as executor:
+        async with CoroutineExecutor() as executor:
             await executor.submit(f, random())
             await executor.submit(f, random())
             await executor.submit(f, random())
@@ -349,12 +286,8 @@ def test_pass_randoms(timeout):
             await executor.submit(producer1, executor)
             await executor.submit(producer2, executor)
 
-    if timeout is not None:
-        with pytest.raises(asyncio.TimeoutError):
-            run(main())
-    else:
-        run(main())
-        assert len(returned) == 9
+    run(main())
+    assert len(returned) == 9
 
 
 def test_shutdown():
@@ -379,8 +312,8 @@ def test_shutdown():
 
 @pytest.mark.parametrize(
     'with_interruption,sleep_time,t1cancelled,t2cancelled,raises', [
-        (False, 0, True, True, False),
-        (False, 0.01, True, True, False),
+        (False, 0, True, True, True),
+        (False, 0.01, True, True, True),
         # The tasks do not get cancelled, but `run()` raises CancelledError??
         # It seems like with sleep(0) the task is created, but does not start
         # executing the coroutine yet?
