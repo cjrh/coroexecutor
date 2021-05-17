@@ -38,18 +38,29 @@ Demo
     import asyncio
     from coroexecutor import CoroutineExecutor
 
-    async def f(dt):
+    async def f(dt, msg=''):
         await asyncio.sleep(dt)
+        print(f'completion message: {msg}')
 
     async def main():
-        async with CoroutineExecutor(max_workers=10) as exe:
-            t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 0.05)
+        async with CoroutineExecutor(max_workers=10, max_backlog=1) as exe:
+            t1 = await exe.submit(f, 0.01, msg="task 1")
+            t2 = await exe.submit(f, 0.05, msg="task 2")
 
         assert t1.done()
         assert t2.done()
 
     asyncio.run(main())
+
+- ``max_workers`` controls how many submitted jobs can run concurrently. These
+  internal workers are lightweight of course, they're just ``asyncio.Task``
+  instances.
+- ``max_backlog`` controls how many jobs can be submitted before "backpressure"
+  is applied. This is why ``.submit`` is awaitable: to provide backpressure.
+  Backlog means "I will keep up to this many submitted jobs on a queue while
+  they wait to be picked up by a worker.
+- Jobs are submitted in this format: ``.submit(corofn, *args, **kwargs)``.
+  The supplied job will be called as ``await corofn(*args, **kwargs)``.
 
 Discussion
 ----------
@@ -77,9 +88,6 @@ Some ideas from Trio's *nurseries* have been used as inspiration:
 - If any jobs raise an exception, all other unfinished jobs are cancelled
   (they will have ``CancelledError`` raised inside them), and
   ``CoroutineExecutor`` re-raises that same exception.
-- Timeouts are interesting given how an executor is a context manager
-  and has an idea of the "scope" over which a timeout can be applied. I've
-  added an optional ``timeout`` parameter to the executor.
 
 Throttling, a.k.a `max_workers`
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
