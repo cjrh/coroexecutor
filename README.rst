@@ -22,10 +22,17 @@
 .. image:: https://img.shields.io/badge/calver-YYYY.MM.MINOR-22bfda.svg
     :target: http://calver.org/
 
-**ALPHA**
+.. warning::
+    This is alpha. Please don't rely on this in a production
+    setting yet. I will remove this warning when it is ready.
 
 coroexecutor
 ============
+
+.. contents::
+    :local:
+    :depth: 2
+    :backlinks: top
 
 Provides an ``Executor`` interface for running a group of coroutines
 together in asyncio-native applications.
@@ -223,42 +230,6 @@ the "0.2" case in this example), the ``CoroutineExecutor`` instance
 re-raising the exception, and in this example, the exception raises all
 the way out to the invocation of the ``run()`` function itself. However,
 note that we still have the results from jobs that succeeded.
-
-Timeouts
-^^^^^^^^
-
-It seems convenient to let the ``CoroutineExecutor`` also apply timeouts
-to the batch of jobs it manages. After all, it already manages the jobs,
-so cancelling them all when a timeout is triggered seems like little
-extra work.
-
-This is how timeouts look (again, taken from one of the tests):
-
-.. code-block:: python3
-
-    tasks = []
-
-    async def f(dt):
-        await asyncio.sleep(dt)
-
-    async def main():
-        async with CoroutineExecutor(timeout=0.05) as exe:
-            t1 = exe.submit(f, 0.01)
-            t2 = exe.submit(f, 5)
-            tasks.extend([t1, t2])
-
-    with pytest.raises(asyncio.TimeoutError):
-        run(main())
-
-    t1, t2 = tasks
-    assert t1.done() and not t1.cancelled()
-    assert t2.done() and t2.cancelled()
-
-Inside the executor, there is a fast job and a slow job. The timeout will
-be applied after the fast one completes, but before the slow one completes.
-The raised ``TimeoutError`` will cancel the slow job, and will be raised
-out of the executor, and indeed all the way to the ``run()`` function (in
-this example).
 
 Nesting
 ^^^^^^^

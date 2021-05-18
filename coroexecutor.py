@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 from asyncio import Future, Task
-from weakref import WeakSet, WeakKeyDictionary
+from weakref import WeakKeyDictionary
 import logging
 from concurrent.futures import Executor
 
@@ -14,21 +14,50 @@ logger.setLevel(logging.WARNING)
 class CoroutineExecutor(Executor):
     def __init__(
             self,
-            max_workers=1000,
-            max_backlog=10,
+            max_workers: int = 1000,
+            max_backlog: int = 10,
             initializer=None,
             initargs=()
     ):
+        """
+        This is intended to be used as a context manager.
+
+        :param max_workers: The number of concurrent tasks to allow. For
+            IO-bound workloads, this may be large. For example, a value of
+            10k might be fine. If you need to do more CPU-bound work, the
+            number of concurrent tasks must be reduced. You will have to
+            experiment to see what is tolerable. It depends on your specific
+            workload.
+        :param max_backlog: The number of jobs to *accept* before applying
+            backpressure. What does that mean? The ``submit`` method is
+            an ``async def`` function which you must ``await`` to use. Before
+            the ``max_backlog`` is reached, submitted jobs will queue up
+            in an internal queue (and obviously some of them will start
+            being executed as running tasks, up to ``max_workers``). The
+            size of that "pending" queue is ``max_backlog``. When that
+            queue is full, the ``await executor.submit(...)`` call will
+            wait until there is capacity in the queue. In practice, there's
+            likely little value in having a large ``max_backlog``. Your
+            program will probably work fine with a ``max_backlog`` of 1.
+        :param initializer: The initializer is a callable that will be
+            called immediately before each task is executed. The initializer
+            can be an ``async def`` function or a normal sync ``def``
+            function. No idea what you would use this for in this async
+            executor. It makes more sense in a multiprocess executor because
+            you might want to initialize the task process somehow.
+            Nevertheless I've retained it for similarity to executors in
+            ``concurrent.futures``.
+        :param initargs: These will be passed to the initializer function
+            if supplied, like this: ``await initializer(*initargs)``
+        """
         self.subfut: WeakKeyDictionary[Future, Task] = WeakKeyDictionary()
-
         self._closed = False
-        self.exe_future = None
-
         self._max_workers = max_workers
         self.initializer = initializer
         self.initargs = initargs
 
         self.q = asyncio.Queue(maxsize=max_backlog)
+        # Long-running tasks for processing jobs.
         self.pool = [
             asyncio.create_task(
                 self.pool_worker()
