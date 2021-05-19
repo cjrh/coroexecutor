@@ -5,17 +5,26 @@ import pytest
 from coroexecutor import CoroutineExecutor
 
 
+async def f(dt, results=None, error=False, evt=None):
+    """Utility function for testing various situations."""
+    await asyncio.sleep(dt)
+    if error:
+        raise Exception('oh noes')
+
+    if results is not None:
+        results.append(1)
+
+    if evt:
+        asyncio.get_running_loop().call_soon(evt.set)
+
+
 def test_basic():
     results = []
 
-    async def f(dt):
-        await asyncio.sleep(dt)
-        results.append(1)
-
     async def main():
         async with CoroutineExecutor() as exe:
-            t1 = await exe.submit(f, 0.01)
-            t2 = await exe.submit(f, 0.05)
+            t1 = await exe.submit(f, 0.001, results)
+            t2 = await exe.submit(f, 0.002, results)
 
         assert t1.done()
         assert t2.done()
@@ -31,19 +40,13 @@ def test_basic():
 def test_exception_cancels_all_tasks(exc_delay, expected_results):
     results = []
 
-    async def f(dt, error=False):
-        await asyncio.sleep(dt)
-        if error:
-            raise Exception('oh noes')
-        results.append(1)
-
     async def main():
         async with CoroutineExecutor() as exe:
-            t1 = await exe.submit(f, exc_delay, error=True)
-            t2 = await exe.submit(f, 0.2)
+            t1 = await exe.submit(f, exc_delay, results, error=True)
+            t2 = await exe.submit(f, 0.2, results)
 
-        assert t1.done()
-        assert t2.done()
+        assert t1.done() and t1.exception() and not t1.cancelled()
+        assert t2.done() and not t2.exception() and t2.cancelled()
 
     with pytest.raises(Exception, match=r'oh noes'):
         run(main())
@@ -54,15 +57,15 @@ def test_exception_cancels_all_tasks(exc_delay, expected_results):
 def test_no_new_tasks():
     got_to_here = []
 
-    async def f(dt):
-        await asyncio.sleep(dt)
-
     async def main():
+        evt = asyncio.Event()
+
         async with CoroutineExecutor() as exe:
-            await exe.submit(f, 0.01)
+            await exe.submit(f, 0.01, evt=evt)
             await exe.submit(f, 0.05)
 
         got_to_here.append(1)
+        await evt.wait()
         await exe.submit(f, 0.02)
 
     with pytest.raises(RuntimeError):
@@ -74,15 +77,13 @@ def test_no_new_tasks():
 def test_reraise_unhandled():
     tasks = []
 
-    async def f(dt):
-        await asyncio.sleep(dt)
-
     async def main():
+        evt = asyncio.Event()
         async with CoroutineExecutor() as exe:
-            t1 = await exe.submit(f, 0.01)
-            t2 = await exe.submit(f, 0.10)
+            t1 = await exe.submit(f, 0.01, evt=evt)
+            t2 = await exe.submit(f, 1.0)
             tasks.extend([t1, t2])
-            await asyncio.sleep(0.05)
+            await evt.wait()
             raise Exception('oh noes')
 
     with pytest.raises(Exception, match=r'oh noes'):
@@ -96,17 +97,15 @@ def test_reraise_unhandled():
 def test_reraise_unhandled_nested():
     tasks = []
 
-    async def f(dt):
-        await asyncio.sleep(dt)
-
     async def main():
+        evt = asyncio.Event()
         async with CoroutineExecutor():
             async with CoroutineExecutor():
                 async with CoroutineExecutor() as exe3:
-                    t1 = await exe3.submit(f, 0.01)
+                    t1 = await exe3.submit(f, 0.01, evt=evt)
                     t2 = await exe3.submit(f, 0.50)
                     tasks.extend([t1, t2])
-                    await asyncio.sleep(0.1)
+                    await evt.wait()
                     raise Exception('oh noes')
 
     with pytest.raises(Exception, match=r'oh noes'):
@@ -120,18 +119,18 @@ def test_reraise_unhandled_nested():
 def test_reraise_unhandled_nested2():
     tasks = []
 
-    async def f(dt):
-        await asyncio.sleep(dt)
-
     async def main():
+        evt1 = asyncio.Event()
+        evt2 = asyncio.Event()
         async with CoroutineExecutor() as exe1:
-            t3 = await exe1.submit(f, 0.01)
-            t4 = await exe1.submit(f, 0.50)
+            t3 = await exe1.submit(f, 0.01, evt=evt1)
+            t4 = await exe1.submit(f, 1.0)
             async with CoroutineExecutor() as exe2:
-                t1 = await exe2.submit(f, 0.01)
-                t2 = await exe2.submit(f, 0.50)
+                t1 = await exe2.submit(f, 0.01, evt=evt2)
+                t2 = await exe2.submit(f, 1.0)
                 tasks.extend([t1, t2, t3, t4])
-                await asyncio.sleep(0.1)
+                await evt1.wait()
+                await evt2.wait()
                 raise Exception('oh noes')
 
     with pytest.raises(Exception, match=r'oh noes'):
@@ -148,14 +147,9 @@ def test_reraise_unhandled_nested2():
 def test_cancel_outer_task():
     tasks = []
 
-    async def f(dt, evt=None):
-        await asyncio.sleep(dt)
-        if evt:
-            asyncio.get_running_loop().call_soon(evt.set)
-
     async def outer(evt: asyncio.Event):
         async with CoroutineExecutor() as exe:
-            t1 = await exe.submit(f, 0.01, evt)
+            t1 = await exe.submit(f, 0.01, evt=evt)
             t2 = await exe.submit(f, 5.0)
             tasks.extend([t1, t2])
 
@@ -177,21 +171,18 @@ def test_cancel_outer_task():
 def test_cancel_inner_task():
     tasks = []
 
-    async def f(dt, *args):
-        await asyncio.sleep(dt)
-        return args
-
-    async def outer():
+    async def outer(evt: asyncio.Event):
         async with CoroutineExecutor() as exe:
-            t1 = await exe.submit(f, 1.0, 'a')
-            t2 = await exe.submit(f, 1.0, 'b')
+            t1 = await exe.submit(f, 1.0)
+            t2 = await exe.submit(f, 1.0)
             tasks.extend([t1, t2])
+            evt.set()
 
     async def main():
-        t = asyncio.create_task(outer())
-        await asyncio.sleep(0.2)
-        t1, t2 = tasks
-        t1.cancel()
+        evt = asyncio.Event()
+        t = asyncio.create_task(outer(evt))
+        await evt.wait()
+        tasks[0].cancel()
         with pytest.raises(asyncio.CancelledError):
             await t
 
