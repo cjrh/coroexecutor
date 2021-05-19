@@ -148,18 +148,21 @@ def test_reraise_unhandled_nested2():
 def test_cancel_outer_task():
     tasks = []
 
-    async def f(dt):
+    async def f(dt, evt=None):
         await asyncio.sleep(dt)
+        if evt:
+            asyncio.get_running_loop().call_soon(evt.set)
 
-    async def outer():
+    async def outer(evt: asyncio.Event):
         async with CoroutineExecutor() as exe:
-            t1 = await exe.submit(f, 0.01)
-            t2 = await exe.submit(f, 0.20)
+            t1 = await exe.submit(f, 0.01, evt)
+            t2 = await exe.submit(f, 5.0)
             tasks.extend([t1, t2])
 
     async def main():
-        t = asyncio.create_task(outer())
-        await asyncio.sleep(0.1)
+        evt = asyncio.Event()
+        t = asyncio.create_task(outer(evt))
+        await evt.wait()
         t.cancel()
         with pytest.raises(asyncio.CancelledError):
             await t
