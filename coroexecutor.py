@@ -137,9 +137,7 @@ class CoroutineExecutor(Executor):
     async def pool_worker(self):
         while True:
             try:
-                # print('waiting for item')
                 item = await self.q.get()
-                # print(f'got item {item}')
             except asyncio.CancelledError:
                 continue
 
@@ -159,7 +157,7 @@ class CoroutineExecutor(Executor):
                     f: asyncio.Future = extra[0]
                     if f.done():
                         # Might already have been cancelled
-                        # del self.subfut[f]
+                        del self.subfut[f]
                         continue
 
                     t = asyncio.create_task(coro)
@@ -169,10 +167,11 @@ class CoroutineExecutor(Executor):
                         """ This is called if the submitter of the
                         job cancels it."""
                         if f.cancelled() and not t.cancelled():
-                            print('f was cancelled, so cancelling the task', args, kwargs)
                             t.cancel()
                             # coro.throw(asyncio.CancelledError())
                         f.remove_done_callback(done_callback)
+                        if f in self.subfut:
+                            del self.subfut[f]
 
                     f.add_done_callback(done_callback)
 
@@ -180,15 +179,12 @@ class CoroutineExecutor(Executor):
                         result = await t
                         # result = await coro
                     except asyncio.CancelledError:
-                        print('cancellederror', args, kwargs)
                         f.cancel()
                         raise
                     except Exception as e:
-                        print('general exception', args, kwargs)
                         f.set_exception(e)
                         raise
                     else:
-                        # print('setting result')
                         f.set_result(result)
                     finally:
                         del self.subfut[f]
@@ -221,14 +217,10 @@ class CoroutineExecutor(Executor):
         await self.__aexit__(None, None, None)
 
     def _cancel_all_tasks(self):
-        print('in _cancel_all_tasks', list(self.subfut.items()))
         for f, t in self.subfut.items():
-            print('cancelling f,t')
             if t:
-                print('cancelling the task, not future')
                 t.cancel()
             else:
-                print('cancelling the future, not task')
                 f.cancel()
 
     async def __aenter__(self):
@@ -247,7 +239,6 @@ class CoroutineExecutor(Executor):
         # and then propagate the exception.
         swallow = False
         if exc_type:
-            print('Exception raise in CM body')
             self._closed = True
             self._cancel_all_tasks()
             swallow = True
@@ -261,6 +252,7 @@ class CoroutineExecutor(Executor):
 
             await self.shut_down_pool()
         except (asyncio.CancelledError, Exception):
+            self._closed = True
             logger.exception('Exception raise in handle_exit wait')
             # Two ways to get here:
             #
@@ -273,7 +265,6 @@ class CoroutineExecutor(Executor):
             #
             # In either case, we want to bubble the exception to the caller,
             # but only after cancelling the existing tasks.
-            self._closed = True
             self._cancel_all_tasks()
 
             # for i in range(self._max_workers):
@@ -282,12 +273,12 @@ class CoroutineExecutor(Executor):
             try:
                 await self.wait_for_completion(swallow=True)
             except Exception:
-                logger.exception('error waiting during handler')
+                logger.exception('Unexpected error waiting during handler')
 
             try:
                 await self.shut_down_pool()
             except Exception:
-                logger.exception('error waiting pool during handler')
+                logger.exception('Unexpected error waiting pool during handler')
 
             raise
         finally:
@@ -320,7 +311,6 @@ class CoroutineExecutor(Executor):
         pending_futures = [fut for fut in self.subfut]
 
         while pending_futures:
-            print('pending futures', pending_futures)
             try:
                 done, pending = await asyncio.wait(
                     pending_futures,
@@ -329,29 +319,23 @@ class CoroutineExecutor(Executor):
             except asyncio.CancelledError as e:
                 self._cancel_all_tasks()
                 to_raise = e
-                # raise
             else:
                 if not to_raise:
-                    print('done, pending', done, pending)
                     for f in done:
                         if f.cancelled() or f.exception():
-                            print('f.cancelled or f.exception, cancelling all tasks')
                             for p in pending:
                                 if self.subfut.get(p):
-                                    print('cancelling p task')
+                                    # A task has already been created for
+                                    # this job - cancel the task.
                                     self.subfut[p].cancel()
                                 else:
-                                    print('cancelling p future')
+                                    # No task is yet created, we have only
+                                    # the future - cancel the future
                                     p.cancel()
 
-                            if f in self.subfut:
-                                del self.subfut[f]
-
                         if f.cancelled():
-                            print('f.cancelled, setting to_raise')
                             to_raise = asyncio.CancelledError()
                         elif f.exception():
-                            print('f.exception, setting to_raise')
                             to_raise = f.exception()
 
             pending_futures = [fut for fut in self.subfut]
@@ -360,8 +344,6 @@ class CoroutineExecutor(Executor):
             raise to_raise
 
     async def shut_down_pool(self):
-        # Shut off the pool workers
-        # print(f'Shutting off the pool workers {self._max_workers}')
         logger.info('Shutting off the pool workers')
         for i in range(self._max_workers):
             await self.q.put(None)
