@@ -167,6 +167,10 @@ class CoroutineExecutor(Executor):
                         """ This is called if the submitter of the
                         job cancels it."""
                         if f.cancelled() and not t.cancelled():
+                            # To reach here, it must be the outside user
+                            # (that called `submit`) that called cancel.
+                            # so we know we need to also cancel the
+                            # associated task.
                             t.cancel()
                             # coro.throw(asyncio.CancelledError())
                         f.remove_done_callback(done_callback)
@@ -196,6 +200,14 @@ class CoroutineExecutor(Executor):
                 # Not the right place to quit. The queue must be
                 # drained.
                 continue
+                # TODO: maybe this is the right place. what we could do here
+                #  is:
+                #  - set self._closed (to prevent more work being added)
+                #  - after `while True`, check for self._closed and exit the
+                #    worker
+                #  - in __aexit__, after all the workers are done, drain
+                #    the queue and cancel all pending futures.
+                #    then exit.
             except Exception:
                 logger.exception('task raised an error:')
 
