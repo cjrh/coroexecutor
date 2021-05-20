@@ -50,12 +50,6 @@ def elapsed():
     1000,
 ])
 def test_many_workers(n, w, b, sleep_time):
-    """ Memory usage:
-
-    Current memory usage is 641.323396MB; Peak was 2633.067287MB
-
-    Many tasks use a lot of memory.
-    """
     import tracemalloc
 
     async def job():
@@ -109,12 +103,6 @@ def test_many_workers(n, w, b, sleep_time):
     1000,
 ])
 def test_many_workers_queue(n, w, b, sleep_time):
-    """ Memory usage:
-
-    Current memory usage is 641.323396MB; Peak was 2633.067287MB
-
-    Many tasks use a lot of memory.
-    """
     import tracemalloc
     results = []
 
