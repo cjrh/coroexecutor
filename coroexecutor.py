@@ -129,7 +129,7 @@ class CoroutineExecutor(Executor):
         This is an async function so that the queue can exert
         backpressure on the caller.
         """
-        if self._closed:
+        if self._closed:  # pragma: no cover
             raise RuntimeError('Executor is closed.')
 
         await self.q.put((fn, args, kwargs))
@@ -272,12 +272,12 @@ class CoroutineExecutor(Executor):
 
             try:
                 await self.wait_for_completion(swallow=True)
-            except Exception:
+            except Exception:  # pragma: no cover
                 logger.exception('Unexpected error waiting during handler')
 
             try:
                 await self.shut_down_pool()
-            except Exception:
+            except Exception:  # pragma: no cover
                 logger.exception('Unexpected error waiting pool during handler')
 
             raise
