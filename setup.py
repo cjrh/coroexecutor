@@ -140,6 +140,6 @@ setup(
     # projects.
     extras_require={  # Optional
         'dev': ['check-manifest', 'pygments', 'wheel'],
-        'test': ['pytest', 'pytest-cov'],
+        'test': ['pytest', 'pytest-cov', 'pytest-flake8'],
     },
 )
