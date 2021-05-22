@@ -50,7 +50,7 @@ Demo
         print(f'completion message: {msg}')
 
     async def main():
-        async with CoroutineExecutor(max_workers=10, max_backlog=1) as exe:
+        async with CoroutineExecutor(max_workers=10) as exe:
             t1 = await exe.submit(f, 0.01, msg="task 1")
             t2 = await exe.submit(f, 0.05, msg="task 2")
 
@@ -59,22 +59,20 @@ Demo
 
     asyncio.run(main())
 
-- ``max_workers`` controls how many submitted jobs can run concurrently. These
-  internal workers are lightweight of course, they're just ``asyncio.Task``
-  instances.
-- ``max_backlog`` controls how many jobs can be submitted before "backpressure"
-  is applied. This is why ``.submit`` is awaitable: to provide backpressure.
-  Backlog means "I will keep up to this many submitted jobs on a queue while
-  they wait to be picked up by a worker.
-- Jobs are submitted in this format: ``.submit(corofn, *args, **kwargs)``.
-  The supplied job will be called as ``await corofn(*args, **kwargs)``.
+``max_workers`` controls how many submitted jobs can run concurrently.
+These internal workers are lightweight of course, they're just
+``asyncio.Task`` instances. Millions of jobs can be pushed through
+the executor. As is normal for asyncio, concurrency requires
+that these jobs be IO-bound, and the upper bound for setting
+``max_workers`` is mainly going to depend on your CPU and RAM resources.
 
 Discussion
 ----------
 
-The ``CoroutineExecutor`` context manager works very much like the
-``Executor`` implementations in the ``concurrent.futures`` package in
-the standard library. The basic components of the interface are:
+The ``CoroutineExecutor`` context manager works very much like
+the ``Executor`` implementations in the ``concurrent.futures``
+package in the standard library. This is the intention of
+this package. The basic components of the interface are:
 
 - The executor applies a context over the creation of jobs
 - Jobs are submitted to the executor
@@ -83,21 +81,34 @@ the standard library. The basic components of the interface are:
 After creating a context manager using ``CoroutineExecutor``, the two
 main features are the ``submit()`` method, and the ``map()`` method.
 
-I can't exactly match ``Executor`` interface in the ``concurrent.futures``
-package because some functions in this interface need to be ``async`` functions.
-But we can get close; certainly close enough that a user with experience
-using the ``ThreadPoolExecutor`` or ``ProcessPoolExecutor`` should be able
-to figure things out pretty quickly.
+It is impossible to *exactly* match the ``Executor`` interface in the
+``concurrent.futures`` package because some functions in this interface
+need to be ``async`` functions. But we can get close; certainly close
+enough that a user with experience using the ``ThreadPoolExecutor`` or
+``ProcessPoolExecutor`` should be able to figure things out pretty quickly.
 
-Some ideas from Trio's *nurseries* have been used as inspiration:
+There is a great deal of complexity that can arise. The "happy path" is
+simple. You just submit jobs to the executor, and they will get
+executed accordingly. But there are many corner cases:
+- asyncio can concurrently execute thousands, or even tens of thousands
+  of (IO-bound) jobs concurrently. But how to handle more, say, millions
+  of jobs?
+- If one job raises an exception, how to terminate all the other jobs?
+  In the CTRL-C case, this is desired, but what about other cases? Do
+  you always want a single task failure (with an unexpected exception)
+  to cancel the entire batch? And is there a difference between
+  a job raising ``CancelledError`` versus raising some other kind of
+  exception?
+- The ``CoroutineExectutor`` provides a context manager API: if
+  some code within the body of the context manager (that is not a task)
+  raises an exception, should all the submitted tasks also
+  be cancelled?
 
-- The ``CoroutineExecutor`` waits until all submitted jobs are complete.
-- If any jobs raise an exception, all other unfinished jobs are cancelled
-  (they will have ``CancelledError`` raised inside them), and
-  ``CoroutineExecutor`` re-raises that same exception.
+Each of these will be discussed in more detail in the sections
+that follow.
 
-Throttling, a.k.a `max_workers`
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Throttling, using ``max_workers``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Even though it is possible to concurrently execute a much larger number
 of (IO bound) tasks with asyncio compared to threads or processes, there
@@ -106,69 +117,113 @@ will still be an upper limit the machine can handle based on either:
 - memory limitations: many task object instances
 - CPU limitations: too many concurrent task objects and events for the event loop to process.
 
-Thus, we also have a ``max_workers`` setting to limit concurrency.
+Thus, we also have a ``max_workers`` setting to limit concurrency. It might
+not be obvious how that limitation is applied, say, in the scenario of
+millions of jobs.
 
-However, for *very* large concurrency, we add a second style of ``submit``
-method for adding work to the executor: ``submit_queue``.  Here are the
-differences:
+The ``CoroutineExecutor.submit()`` is an ``async def`` method. This means
+that you will have to await it, like so:
 
-**``def submit(fn, *args, **kwargs)``**
+.. code-block:: python3
 
-- This method mimics the ``submit`` method in the stdlib ``concurrent.futures``
-  `package <https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.Executor.submit>`_
-- Instead of returning a `concurrent.future.Future <https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.Future>`_,
-  this method returns an `asyncio.Future <https://docs.python.org/3/library/asyncio-future.html?highlight=asyncio%20future#asyncio.Future>`_.
-- Returning a future maintains parity with the corresponding method in ``concurrent.futures``, but it also means
-  that a task object will have been created for every ``submit()`` call (to provide the ``Future`` result).
-- Even though a task is created for every ``submit()`` call, there is an internal
-  `asyncio.Semaphore <https://docs.python.org/3/library/asyncio-sync.html?highlight=semaphore#asyncio.Semaphore>`_
-  that limits the concurrency of the *submitted jobs*.
+    import asyncio
+    from coroexecutor import CoroutineExecutor
 
-The point is this: using ``submit()``, the ``max_workers`` setting will
-limit concurrency of the submitted jobs, but
-**will create a task for every ``submit()`` call**. For most "normal"
-workloads, say up to 50k jobs, this will be fine; but it will cause memory
-and/or CPU problems for millions of jobs.
+    async def f():
+        print('hi!')
 
-For very large workloads, we have an additional method that does not mimic a corresponding version in
-``concurrent.futures``:  ``submit_queue()``.
+    async def main():
+        async with CoroutineExecutor(max_workers=10) as exe:
+            t1 = await exe.submit(f)
 
-**``async def submit_queue(fn, *args, **kwargs) -> None``**
+    asyncio.run(main())
 
-- This method does not mimic anything in ``concurrent.futures``, it is new.
-- This method **does not return a Future**; thus, it doesn't need to create a task for every submitted job
-- Internally, this method uses an `asyncio.Queue <https://docs.python.org/3/library/asyncio-queue.html?highlight=asyncio%20queue#asyncio.Queue>`_
-  and a pool of "worker tasks" of size ``max_workers``.
-- New ``Task`` objects are never created for submitted jobs: the fixed-size pool of worker tasks simply pull work
-  off the internal ``asyncio.Queue`` instance. This dramatically saves memory.
-- The size of the internal ``Queue`` is configurable via the ``max_backlog`` parameter of ``CoroutineExecutor``.
-- The queue size (``max_backlog``) is important because, by default,
-  if shutdown is initiated, say by ``CTRL-C``, then pending
-  work already submitted on this queue is **not cancelled**,
-  but will continue to be processed until those pending tasks have all
-  been completed. Thus, having a smaller backlog will reduce the time it takes
-  to shut down, since there will be less work on the queue. Generally
-  speaking, a larger queue size will not improve performance, and having a
-  smaller backlog limit also means that back-pressure can be propagated
-  through the call stack. This is why ``submit_queue()`` is a coroutine
-  function.
-- Finally, because ``submit_queue()`` does not return a future (or anything),
-  it means that obtaining results from jobs requires a different
-  strategy. A good option is for the submitted job (coroutine function)
-  to send results somewhere itself. For example, it could append to
-  a global list, or send a result over a socket, or write out to a
-  file, write to a database, and so on.
+If the total number of jobs already submitted is less than ``max_workers``,
+the call to ``await exe.submit()`` will return immediately: the job will
+begin executing, and ``submit()`` returns an ``asyncio.Task`` instance
+for that job. However, if the total number of concurrently-running jobs
+is greater than the ``max_workers`` setting, this call will wait until
+the number of currently-running jobs drops below the threshold before
+adding the new job. This means that ``submit()`` applied *back-pressure*.
 
-The ``submit_queue()`` method can be used to successfully process many
-millions of tasks. The concurrency setting, ``max_workers``, can be
-used to tweak how many submitted jobs are active at any one time, and
-here you will need to experiment because the optimal value will depend on
-the ratio of IO-bound vs. CPU-bound work being performed in submitted jobs.
-If more CPU-bound, then ``max_workers`` should be reduced; if more
-IO-bound, then ``max_workers`` can be increased.
+Say you have a file containing ten million URLs that you want to fetch
+using aiohttp. That program might look something like this:
 
-As a rough guide, for IO-bound work you can start at ``max_workers=20_000`` and see how that
-goes. For a more mixed IO/CPU workload, start at ``max_workers=100``.
+.. code-block:: python3
+
+    import asyncio, aiohttp
+    from coroexecutor import CoroutineExecutor
+
+    async def fetch(url: str):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    print('body:', response.text())  # or whatever
+        except Exception:
+            print('Problem with url:', url)
+
+    async def main():
+        async with CoroutineExecutor(max_workers=10000) as exe:
+            for line in open('urls.txt'):
+                await exe.submit(fetch, line)
+
+    asyncio.run(main())
+
+Assuming it takes 3 seconds to fetch a single url, this program should
+take around 1e7 / 1e4 => 1000 seconds to fetch all of them.
+About 17 minutes, since even though there are 10 million urls, we're
+doing 10k concurrently.
+
+Note that we're handling errors inside our job function ``fetch()``.
+By default, if jobs raise exceptions these will cancel all pending jobs
+inside the executor, and shut it down. For long batch jobs, that may
+not be what we want, and this is discussed next.
+
+Dealing with errors
+^^^^^^^^^^^^^^^^^^^
+
+Generally, there are these kinds of error situations:
+
+- One job is cancelled, and you want the executor to be shut down
+- One job is cancelled, and the executor must NOT be shut down
+- One job raises an exception (not ``CancelledError``), and
+  you want the executor to shut down
+- One job raises an exception (not ``CancelledError``), and the
+  executor must NOT be shut down
+
+Consider the previous example using aiohttp to fetch URLs: inside
+the ``fetch()`` function, we're handling ``Exception``, which
+includes ``asyncio.CancelledError``. In general, this is the
+correct thing to do because you can control what happens in
+each of the scenarios presented above. But what happens
+if your code is not supplying the jobs and you don't control
+how error handling inside them is being managed? In this
+case, you can ask ``CoroutineExecutor`` to ignore the task
+errors for you:
+
+.. code-block:: python3
+
+    import asyncio, aiohttp
+    from coroexecutor import CoroutineExecutor
+
+    async def naive_fetch(url: str):
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                print('body:', response.text())  # or whatever
+
+    async def main():
+        async with CoroutineExecutor(
+                max_workers=10000,
+                suppress_task_errors=True,
+        ) as exe:
+            for line in open('urls.txt'):
+                await exe.submit(naive_fetch, line)
+
+    asyncio.run(main())
+
+In this modified example, the job function ``naive_fetch`` has
+no error handling. No matter, the ``suppress_task_errors``
+parameter will allow the executor to absorb them all.
 
 Examples
 --------
@@ -193,7 +248,7 @@ returns an iterator. However, it makes for sense for us to use an
             results = exe.map(f, times)
             assert [v async for v in results] == times
 
-    run(main())
+    asyncio.run(main())
 
 You can see how ``async for`` is used to asynchronously loop over the
 result from calling ``map``.
@@ -219,7 +274,7 @@ another example from the tests:
                 results.append(r)
 
     with pytest.raises(Exception):
-        run(main())
+        asyncio.run(main())
 
     assert results == [0.01, 0.02]
 
