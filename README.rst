@@ -90,6 +90,7 @@ enough that a user with experience using the ``ThreadPoolExecutor`` or
 There is a great deal of complexity that can arise. The "happy path" is
 simple. You just submit jobs to the executor, and they will get
 executed accordingly. But there are many corner cases:
+
 - asyncio can concurrently execute thousands, or even tens of thousands
   of (IO-bound) jobs concurrently. But how to handle more, say, millions
   of jobs?
@@ -144,7 +145,7 @@ begin executing, and ``submit()`` returns an ``asyncio.Task`` instance
 for that job. However, if the total number of concurrently-running jobs
 is greater than the ``max_workers`` setting, this call will wait until
 the number of currently-running jobs drops below the threshold before
-adding the new job. This means that ``submit()`` applied *back-pressure*.
+adding the new job. This means that ``submit()`` applies *back-pressure*.
 
 Say you have a file containing ten million URLs that you want to fetch
 using aiohttp. That program might look something like this:
@@ -169,26 +170,29 @@ using aiohttp. That program might look something like this:
 
     asyncio.run(main())
 
-Assuming it takes 3 seconds to fetch a single url, this program should
-take around 1e7 / 1e4 => 1000 seconds to fetch all of them.
+Assuming it takes 3 seconds to fetch a single url, this program
+should take around 1e7 / 1e4 => 1000 seconds to fetch all of them.
 About 17 minutes, since even though there are 10 million urls, we're
-doing 10k concurrently.
+doing 10k concurrently. (In practice, some of the endpoints will be
+very slow to respond, if they respond at all. So for real code you're
+going to want to either use aiohttp facilities for timeouts on the
+``.get()``, or wrap the work inside an ``asyncio.wait_for()`` wrapper.)
 
 Note that we're handling errors inside our job function ``fetch()``.
 By default, if jobs raise exceptions these will cancel all pending jobs
 inside the executor, and shut it down. For long batch jobs, that may
 not be what we want, and this is discussed next.
 
-Dealing with errors
-^^^^^^^^^^^^^^^^^^^
+Dealing with errors and cancellation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Generally, there are these kinds of error situations:
 
-- One job is cancelled, and you want the executor to be shut down
-- One job is cancelled, and the executor must NOT be shut down
-- One job raises an exception (not ``CancelledError``), and
+- A job is cancelled, and you want the executor to be shut down
+- A job is cancelled, and the executor must NOT be shut down
+- A job raises an exception (not ``CancelledError``), and
   you want the executor to shut down
-- One job raises an exception (not ``CancelledError``), and the
+- A job raises an exception (not ``CancelledError``), and the
   executor must NOT be shut down
 
 Consider the previous example using aiohttp to fetch URLs: inside
@@ -197,9 +201,13 @@ includes ``asyncio.CancelledError``. In general, this is the
 correct thing to do because you can control what happens in
 each of the scenarios presented above. But what happens
 if your code is not supplying the jobs and you don't control
-how error handling inside them is being managed? In this
-case, you can ask ``CoroutineExecutor`` to ignore the task
-errors for you:
+how error handling inside them is being managed? By default,
+if any job raises an exception (cancellation or otherwise)
+that will initiate "shutdown" of the executor instance, and
+all other pending jobs on that executor will be cancelled.
+
+If you have a situation where this is not desired, you can
+ask ``CoroutineExecutor`` to ignore all task errors for you:
 
 .. code-block:: python3
 
@@ -223,7 +231,10 @@ errors for you:
 
 In this modified example, the job function ``naive_fetch`` has
 no error handling. No matter, the ``suppress_task_errors``
-parameter will allow the executor to absorb them all.
+parameter will allow the executor to absorb them all. Be careful
+with this. I recommend against doing this wherever possible, and
+handle exceptions and ``CancelledError`` explicitly within
+your job functions instead.
 
 Examples
 --------
