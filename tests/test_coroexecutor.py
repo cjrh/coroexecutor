@@ -152,11 +152,38 @@ def test_cancel_outer_task():
             t1 = await exe.submit(f, 0.01, evt=evt)
             t2 = await exe.submit(f, 5.0)
             tasks.extend([t1, t2])
+            await asyncio.sleep(1.0)
 
     async def main():
         evt = asyncio.Event()
         t = asyncio.create_task(outer(evt))
         await evt.wait()
+        print('cancelling the outer task')
+        t.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t
+
+    run(main())
+
+    t1, t2 = tasks
+    assert t1.done() and not t1.cancelled()
+    assert t2.done() and t2.cancelled()
+
+
+def test_cancel_outer_task_inside_aexit():
+    tasks = []
+
+    async def outer(evt: asyncio.Event):
+        async with CoroutineExecutor() as exe:
+            t1 = await exe.submit(f, 0.01, evt=evt)
+            t2 = await exe.submit(f, 5.0)
+            tasks.extend([t1, t2])
+
+    async def main():
+        evt = asyncio.Event()
+        t = asyncio.create_task(outer(evt))
+        await evt.wait()
+        print('cancelling the outer task')
         t.cancel()
         with pytest.raises(asyncio.CancelledError):
             await t
@@ -173,15 +200,18 @@ def test_cancel_inner_task():
 
     async def outer(evt: asyncio.Event):
         async with CoroutineExecutor() as exe:
-            t1 = await exe.submit(f, 1.0)
-            t2 = await exe.submit(f, 1.0)
+            t1 = await exe.submit(f, 4.0)
+            t2 = await exe.submit(f, 4.0)
             tasks.extend([t1, t2])
             evt.set()
+            # This await will *not* be cancelled.
+            await asyncio.sleep(0.1)
 
     async def main():
         evt = asyncio.Event()
         t = asyncio.create_task(outer(evt))
-        await evt.wait()
+        await asyncio.wait_for(evt.wait(), 5.0)
+        print('cancelling task')
         tasks[0].cancel()
         with pytest.raises(asyncio.CancelledError):
             await t
@@ -311,7 +341,7 @@ def test_shutdown():
         # The tasks do not get cancelled, but `run()` raises CancelledError??
         # It seems like with sleep(0) the task is created, but does not start
         # executing the coroutine yet?
-        (True, 0, False, False, True),
+        (True, 0, False, False, False),
         # The tasks do not get cancelled, and no CancelledError is raised.
         (True, 0.01, False, False, False),
     ]

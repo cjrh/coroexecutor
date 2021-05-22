@@ -91,35 +91,3 @@ def test_many_workers(n, w, sleep_time):
         assert [t.result() for t in tasks] == [123] * n
 
     run(main())
-
-
-@pytest.mark.parametrize('sleep_time', [
-    0,
-    0.0001
-])
-@pytest.mark.parametrize('n,w,b', [
-    # Single worker test - 0.02 MB
-    (100, 1, 5),
-    # Many jobs, but 50 worker tasks and a queue backlog of 50 - 0.25 MB
-    (10_000, 50, 50),
-    # Many jobs, 50 worker tasks, large queue backlog - 1.5 MB memory
-    (10_000, 50, 10000),
-])
-def test_many_workers_queue(n, w, b, sleep_time):
-    results = []
-
-    async def job():
-        await sleep(sleep_time)
-        results.append(None)
-
-    async def main():
-        kwargs = dict(max_workers=w, max_backlog=b)
-        with elapsed():
-            async with CoroutineExecutor(**kwargs) as exe:
-                for i in range(n):
-                    await exe.submit_queue(job)
-                    # print(f'Submitted job {i}')
-
-        assert len(results) == n
-
-    run(main())
