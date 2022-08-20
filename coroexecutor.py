@@ -105,6 +105,8 @@ class CoroutineExecutor(Executor):
         if self._closed:
             raise RuntimeError('Executor is closed.')
 
+        # This line will block until a token is available. This
+        # applies backpressure to the caller.
         token = await self.tokens.get()
         t = asyncio.create_task(
             self.run_task((fn, args, kwargs), token)
@@ -113,9 +115,52 @@ class CoroutineExecutor(Executor):
         return t
 
     async def map(self, fn, *iterables):
-        fs = [await self.submit(fn, *args) for args in zip(*iterables)]
-        for f in fs:
-            yield await f
+        """
+        Async generator to map values into an async callable.
+
+        .. code-block:: python
+
+            async def job(item):
+                ...
+
+            async for result in map(job, items):
+                print(f"Result: {result}")
+
+        """
+        # This can be accomplished with the following simple
+        # commented-out code.
+        #
+        # However, there is a problem: we still accumulate a
+        # potentially large list.
+
+        # fs = [await self.submit(fn, *args) for args in zip(*iterables)]
+        # for f in fs:
+        #     yield await f
+
+        # Instead, the following much more complicated code
+        # can carefully do the same, but without the large
+        # list. The key is decoupling the backpressure of
+        # the `submit` method, from the provision of the
+        # results to the caller.
+
+        q = asyncio.Queue(maxsize=self._max_workers)
+
+        async def submitter():
+            for args in zip(*iterables):
+                fut = await self.submit(fn, *args)
+                await q.put(fut)
+            await q.put(None)
+
+        t = asyncio.create_task(submitter())
+
+        while True:
+            fut = await q.get()
+            if fut is None:
+                break
+
+            yield await fut
+
+        await t
 
     async def shutdown(self, wait=True):
         """Shut down the executor.
@@ -149,7 +194,6 @@ class CoroutineExecutor(Executor):
         # need to handle. Cancel all pending tasks, run them to completion
         # and then propagate the exception.
         to_raise = None
-        print(exc_type, exc_val, exc_tb)
         if exc_type:
             self.initiate_shutdown()
 
@@ -160,7 +204,6 @@ class CoroutineExecutor(Executor):
                 # So we eagerly check for those here, and remove as
                 # necessary.
                 for t in self.running_tasks:  # type: asyncio.Task
-                    print(t)
                     if t.cancelled():
                         if not self._absorb_task_exceptions:
                             self.initiate_shutdown()
@@ -212,5 +255,4 @@ class CoroutineExecutor(Executor):
         # Otherwise, if some other error caused us to shut down, and we
         # recorded that exception, then raise that.
         if to_raise:
-            print('raising cancelled from to_raise: ', to_raise)
             raise to_raise

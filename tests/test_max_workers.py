@@ -1,5 +1,6 @@
 import random
 import sys
+import asyncio
 from asyncio import sleep, run
 from contextlib import contextmanager
 import time
@@ -11,9 +12,9 @@ from coroexecutor import CoroutineExecutor
 
 @contextmanager
 def elapsed():
-    t0 = time.monotonic()
+    t0 = time.perf_counter()
     yield lambda: t1 - t0
-    t1 = time.monotonic()
+    t1 = time.perf_counter()
 
 
 async def job(i):
@@ -44,17 +45,41 @@ def test_one_worker_serial():
 
 
 @pytest.mark.skipif(
+    sys.platform in {'darwin', 'win32'}, reason='too low concurrency value')
+def test_one_worker_concurrent_submit():
+
+    async def main():
+        tasks = []
+        kwargs = dict(max_workers=10)
+        async with CoroutineExecutor(**kwargs) as exe:
+            with elapsed() as f:
+                for item in items:
+                    tasks.append(await exe.submit(job, item))
+
+                results = [await t for t in tasks]
+
+        assert results == items
+
+        # Speedup is roughly 10 times
+        concurrency = sum(items) / f()
+        print(f(), sum(items), concurrency)
+        assert concurrency > 7
+
+    run(main())
+
+
+@pytest.mark.skipif(
     sys.platform == 'darwin', reason='too low concurrency value')
-def test_one_worker_concurrent():
+def test_one_worker_concurrent_map():
 
     async def main():
         kwargs = dict(max_workers=10)
-        with elapsed() as f:
-            async with CoroutineExecutor(**kwargs) as exe:
-                tasks = [await exe.submit(job, item) for item in items]
+        async with CoroutineExecutor(**kwargs) as exe:
+            with elapsed() as f:
+                results = [x async for x in exe.map(job, items)]
 
-        assert all(t.done() for t in tasks)
-        assert [t.result() for t in tasks] == items
+        assert results == items
+
         # Speedup is roughly 10 times
         concurrency = sum(items) / f()
         print(f(), sum(items), concurrency)
