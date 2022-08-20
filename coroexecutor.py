@@ -139,7 +139,7 @@ class CoroutineExecutor(Executor):
 
         # Instead, the following much more complicated code
         # can carefully do the same, but without the large
-        # list. The key is decoupling the backpressure from
+        # list. The key is decoupling the backpressure of
         # the `submit` method, from the provision of the
         # results to the caller.
 

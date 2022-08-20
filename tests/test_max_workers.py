@@ -12,9 +12,9 @@ from coroexecutor import CoroutineExecutor
 
 @contextmanager
 def elapsed():
-    t0 = time.monotonic()
+    t0 = time.perf_counter()
     yield lambda: t1 - t0
-    t1 = time.monotonic()
+    t1 = time.perf_counter()
 
 
 async def job(i):
