@@ -56,7 +56,7 @@ def test_one_worker_concurrent_submit():
                 for item in items:
                     tasks.append(await exe.submit(job, item))
 
-                results = [t.result() for t in tasks]
+                results = [await t for t in tasks]
 
         assert results == items
 
