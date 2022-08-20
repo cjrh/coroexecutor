@@ -44,8 +44,8 @@ def test_one_worker_serial():
     run(main())
 
 
-# @pytest.mark.skipif(
-#     sys.platform == 'darwin', reason='too low concurrency value')
+@pytest.mark.skipif(
+    sys.platform == 'darwin', reason='too low concurrency value')
 def test_one_worker_concurrent():
 
     async def main():
@@ -53,7 +53,6 @@ def test_one_worker_concurrent():
         async with CoroutineExecutor(**kwargs) as exe:
             with elapsed() as f:
                 results = [x async for x in exe.map(job, items)]
-
 
         assert results == items
 
