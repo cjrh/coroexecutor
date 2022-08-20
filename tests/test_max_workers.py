@@ -51,8 +51,8 @@ def test_one_worker_concurrent():
     async def main():
         kwargs = dict(max_workers=10)
         async with CoroutineExecutor(**kwargs) as exe:
+            tasks = [await exe.submit(job, item) for item in items]
             with elapsed() as f:
-                tasks = [await exe.submit(job, item) for item in items]
                 await asyncio.wait(tasks)
                 assert [t.result() for t in tasks] == items
 
