@@ -45,7 +45,7 @@ def test_one_worker_serial():
 
 
 @pytest.mark.skipif(
-    sys.platform in {'darwin', 'windows'}, reason='too low concurrency value')
+    sys.platform in {'darwin', 'win32'}, reason='too low concurrency value')
 def test_one_worker_concurrent_submit():
 
     async def main():
