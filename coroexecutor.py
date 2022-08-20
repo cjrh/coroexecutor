@@ -149,7 +149,6 @@ class CoroutineExecutor(Executor):
         # need to handle. Cancel all pending tasks, run them to completion
         # and then propagate the exception.
         to_raise = None
-        print(exc_type, exc_val, exc_tb)
         if exc_type:
             self.initiate_shutdown()
 
@@ -160,7 +159,6 @@ class CoroutineExecutor(Executor):
                 # So we eagerly check for those here, and remove as
                 # necessary.
                 for t in self.running_tasks:  # type: asyncio.Task
-                    print(t)
                     if t.cancelled():
                         if not self._absorb_task_exceptions:
                             self.initiate_shutdown()
@@ -212,5 +210,4 @@ class CoroutineExecutor(Executor):
         # Otherwise, if some other error caused us to shut down, and we
         # recorded that exception, then raise that.
         if to_raise:
-            print('raising cancelled from to_raise: ', to_raise)
             raise to_raise
