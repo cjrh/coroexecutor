@@ -1,5 +1,6 @@
 import random
 import sys
+import asyncio
 from asyncio import sleep, run
 from contextlib import contextmanager
 import time
@@ -49,12 +50,13 @@ def test_one_worker_concurrent():
 
     async def main():
         kwargs = dict(max_workers=10)
-        with elapsed() as f:
-            async with CoroutineExecutor(**kwargs) as exe:
+        async with CoroutineExecutor(**kwargs) as exe:
+            with elapsed() as f:
                 tasks = [await exe.submit(job, item) for item in items]
+                await asyncio.wait(tasks)
+                assert [t.result() for t in tasks] == items
 
         assert all(t.done() for t in tasks)
-        assert [t.result() for t in tasks] == items
         # Speedup is roughly 10 times
         concurrency = sum(items) / f()
         print(f(), sum(items), concurrency)
