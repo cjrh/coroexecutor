@@ -51,12 +51,14 @@ def test_one_worker_concurrent():
     async def main():
         kwargs = dict(max_workers=10)
         async with CoroutineExecutor(**kwargs) as exe:
-            tasks = [await exe.submit(job, item) for item in items]
+            # tasks = [exe.submit(job, item) for item in items]
             with elapsed() as f:
-                await asyncio.wait(tasks)
-                assert [t.result() for t in tasks] == items
+                results = [x async for x in exe.map(job, items)]
 
-        assert all(t.done() for t in tasks)
+            # assert [t.result() for t in tasks] == items
+            assert results == items
+
+        # assert all(t.done() for t in tasks)
         # Speedup is roughly 10 times
         concurrency = sum(items) / f()
         print(f(), sum(items), concurrency)

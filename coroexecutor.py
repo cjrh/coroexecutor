@@ -105,6 +105,8 @@ class CoroutineExecutor(Executor):
         if self._closed:
             raise RuntimeError('Executor is closed.')
 
+        # This line will block until a token is available. This
+        # applies backpressure to the caller.
         token = await self.tokens.get()
         t = asyncio.create_task(
             self.run_task((fn, args, kwargs), token)
@@ -113,9 +115,52 @@ class CoroutineExecutor(Executor):
         return t
 
     async def map(self, fn, *iterables):
-        fs = [await self.submit(fn, *args) for args in zip(*iterables)]
-        for f in fs:
-            yield await f
+        """
+        Async generator to map values into an async callable.
+
+        .. code-block:: python
+
+            async def job(item):
+                ...
+
+            async for result in map(job, items):
+                print(f"Result: {result}")
+
+        """
+        # This can be accomplished with the following simple
+        # commented-out code.
+        #
+        # However, there is a problem: we still accumulate a
+        # potentially large list.
+
+        # fs = [await self.submit(fn, *args) for args in zip(*iterables)]
+        # for f in fs:
+        #     yield await f
+
+        # Instead, the following much more complicated code
+        # can carefully do the same, but without the large
+        # list. The key is decoupling the backpressure from
+        # the `submit` method, from the provision of the
+        # results to the caller.
+
+        q = asyncio.Queue(maxsize=self._max_workers)
+
+        async def submitter():
+            for args in zip(*iterables):
+                fut = await self.submit(fn, *args)
+                await q.put(fut)
+            await q.put(None)
+
+        t = asyncio.create_task(submitter())
+
+        while True:
+            fut = await q.get()
+            if fut is None:
+                break
+
+            yield await fut
+
+        await t
 
     async def shutdown(self, wait=True):
         """Shut down the executor.
