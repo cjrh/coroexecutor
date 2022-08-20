@@ -51,12 +51,12 @@ def test_one_worker_concurrent_submit():
     async def main():
         tasks = []
         kwargs = dict(max_workers=10)
-        with elapsed() as f:
-            async with CoroutineExecutor(**kwargs) as exe:
+        async with CoroutineExecutor(**kwargs) as exe:
+            with elapsed() as f:
                 for item in items:
                     tasks.append(await exe.submit(job, item))
 
-            results = [t.result() for t in tasks]
+                results = [t.result() for t in tasks]
 
         assert results == items
 
