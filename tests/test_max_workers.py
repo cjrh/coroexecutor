@@ -46,7 +46,31 @@ def test_one_worker_serial():
 
 @pytest.mark.skipif(
     sys.platform == 'darwin', reason='too low concurrency value')
-def test_one_worker_concurrent():
+def test_one_worker_concurrent_submit():
+
+    async def main():
+        tasks = []
+        kwargs = dict(max_workers=10)
+        with elapsed() as f:
+            async with CoroutineExecutor(**kwargs) as exe:
+                for item in items:
+                    tasks.append(await exe.submit(job, item))
+
+            results = [t.result() for t in tasks]
+
+        assert results == items
+
+        # Speedup is roughly 10 times
+        concurrency = sum(items) / f()
+        print(f(), sum(items), concurrency)
+        assert concurrency > 7
+
+    run(main())
+
+
+@pytest.mark.skipif(
+    sys.platform == 'darwin', reason='too low concurrency value')
+def test_one_worker_concurrent_map():
 
     async def main():
         kwargs = dict(max_workers=10)
